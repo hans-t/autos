@@ -1,2 +1,2 @@
 # autos
-Python automation library
+Python 3 automation library for everyday tasks.
