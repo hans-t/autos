@@ -1,9 +1,9 @@
-__all__ = ['dedupe_by_key', 'partition', 'chunk_iterable']
+__all__ = ['dedupe', 'partition', 'chunk_iterable']
 
 import itertools
 
 
-def dedupe_by_key(items, key):
+def dedupe(items, key=None):
     """Remove duplicates in an iterable of items based on key function.
 
     :type items: iterable
@@ -11,11 +11,14 @@ def dedupe_by_key(items, key):
 
     :type key: function
     :param key: A key function that takes an item as argument.
+
+    :rtype: iterator
+    :returns: Deduplicated, order-preserving iterable of items.
     """
 
     seen = set()
     for item in items:
-        val = key(item)
+        val = key(item) if key is not None else item
         if val not in seen:
             yield item
             seen.add(val)
@@ -23,10 +26,15 @@ def dedupe_by_key(items, key):
 
 def partition(iterable, k):
     """
-    Partition finite iterable into k almost-equal partitions
-    Args:
-        iterable: a finite iterable
-        k: an integer that specifies the number of partitions
+    Partition finite iterable into k almost-equal partitions in round-robin manner.
+    :type iterable: iterable
+    :param iterable: A finite iterable.
+
+    :type k: int
+    :param k: Number of partitions.
+
+    :rtype: list
+    :returns: List of lists of partitioned iterable.
     """
 
     partitioned = []
@@ -45,7 +53,10 @@ def chunk_iterable(iterable, size):
     :param iterable: Iterable to be chunked.
 
     :type size: int
-    :param size: Positive integer that specifies how many elements per chunk.
+    :param size: Number of elements per chunk.
+
+    :rtype: iterator
+    :returns: A list of chunks tuple.
     """
 
     it = iter(iterable)

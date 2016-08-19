@@ -1,6 +1,6 @@
 __all__ = ['dround']
 
-from decimal import Decimal
+import decimal
 
 
 def dround(decimal_number, decimal_places):
@@ -16,4 +16,4 @@ def dround(decimal_number, decimal_places):
     :returns: Rounded decimal number.
     """
 
-    return decimal_number.quantize(Decimal(10) ** -decimal_places)
+    return decimal_number.quantize(decimal.Decimal(10) ** -decimal_places)

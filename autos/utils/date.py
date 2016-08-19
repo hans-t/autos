@@ -1,4 +1,4 @@
-__all__ = ['get_date_range']
+__all__ = ['date_range', 'get_past_date']
 
 import datetime
 
@@ -21,11 +21,14 @@ def date_range(since=datetime.date.today(), until=datetime.date.today()):
         until -= datetime.timedelta(days=1)
 
 
-def get_n_days_ago_date(n=1):
-    """Get the date n days ago from today. Default to yesterday.
+def get_past_date(days=0, weeks=0):
+    """Get past n days and m weeks ago date. Defaults to today's date.
 
-    :type n: int
-    :param n: Positive value means future date. Negative value means past date.
-              0 means today.
+    :type days: int
+    :param days: Number of days ago if positive, later if negative.
+
+    :type weeks: int
+    :param weeks: Number of weeks ago if positive, later if negative.
     """
-    return (datetime.date.today() - datetime.timedelta(days=n))
+
+    return (datetime.date.today() - datetime.timedelta(days=days, weeks=weeks))
