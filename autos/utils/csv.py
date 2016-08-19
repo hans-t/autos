@@ -16,8 +16,8 @@ def itertuples(fp, **kwargs):
     :type kwargs: keyword arguments
     :param kwargs: extra arguments to be passed to csv.reader.
 
-    :rtype: namedtuple
-    :returns: Yields namedtuple for each row.
+    :rtype: iterator
+    :returns: Namedtuple rows.
     """
 
     reader = csv.reader(fp, **kwargs)
