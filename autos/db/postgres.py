@@ -1,249 +1,282 @@
-import os
 import csv
 import logging
 import tempfile
 import itertools
+import collections
 from random import choice
 from string import ascii_lowercase
-from collections import namedtuple
 
+import psycopg2
 
-DELIMITER = '\t'
-ENCODING = 'utf-8'
+import autos.utils.file as file
+
 
 logger = logging.getLogger(__name__)
 
 
-def get_random_cursor_name(length=7):
-    return ''.join(choice(ascii_lowercase) for i in range(length))
+class Postgres:
+    def __init__(self):
+        self.encoding = 'utf-8'
+        self.delimiter = '\t'
+        self._conn = None
 
-
-def extract_table(conn, query, itersize=-1, use_named_cursor=False, with_header=False):
-    """
-    :type conn: psycopg2.connection
-    :param conn: connection object returned by psycopg2.connect.
-
-    :type query: string
-    :param query: SQL query string.
-
-    :type itersize: int
-    :param itersize: If itersize == -1, then fetchall, else fetchmany(itersize)
-
-    :type use_named_cursor: boolean
-    :param use_named_cursor: If true, then use server side cursor, else client side cursor.
-    """
-
-    cursor_name = get_random_cursor_name() if use_named_cursor else None
-    with conn.cursor(cursor_name) as cursor:
-        cursor.execute(query)
-        if cursor_name:
-            cursor.itersize = 10000 if itersize == -1 else itersize
-            rows = itertools.chain([next(cursor)], cursor)
+    @property
+    def conn(self):
+        if self._conn is not None:
+            return self._conn
         else:
-            if itersize == -1:
+            raise RuntimeError('Connection has not been initialized.')
+
+    def get_encoding(self, encoding):
+        """Get encoding, use default if None.
+
+        :type encoding: str
+        :param encoding: File encoding.
+        """
+
+        if encoding is None:
+            return self.encoding
+        else:
+            return encoding
+
+    def get_delimiter(self, delimiter):
+        """Get delimiter, use default if None.
+
+        :type delimiter: str
+        :param delimiter: File delimiter.
+        """
+
+        if delimiter is None:
+            return self.delimiter
+        else:
+            return delimiter
+
+    def open_csv(self, filename, mode='r', encoding=None):
+        """Open a CSV file."""
+
+        encoding = self.get_encoding(encoding)
+        return open(filename, mode=mode, encoding=encoding, newline='')
+
+    def connect(self, *args, **kwargs):
+        """Establish connection to database."""
+
+        self._conn = psycopg2.connect(*args, **kwargs)
+
+    def execute(self, query):
+        """Execute an SQL statement.
+
+        :type query: string
+        :param query: SQL query string.
+        """
+
+        with self.conn, self.conn.cursor() as cursor:
+            cursor.execute(query)
+
+    def select(self, query, arraysize=-1):
+        """Execute a SELECT statement.
+
+        :type query: string
+        :param query: SQL query string.
+
+        :type arraysize: int
+        :param arraysize: If arraysize == -1, then fetchall will be used,
+                          else fetchmany(arraysize).
+
+        :rtype: iterator
+        :returns: Iterator of result rows.
+        """
+
+        with self.conn, self.conn.cursor() as cursor:
+            cursor.execute(query)
+            if arraysize == -1:
                 rows = cursor.fetchall()
             else:
-                cursor.arraysize = itersize
+                cursor.arraysize = arraysize
                 rows = itertools.chain.from_iterable(iter(cursor.fetchmany, []))
 
-        header = [desc[0] for desc in cursor.description]
-        if with_header:
+            header = [desc[0] for desc in cursor.description]
+            Row = collections.namedtuple('Row', header)
             yield header
+            yield from map(Row._make, rows)
 
-        Row = namedtuple('Row', header)
-        for row in rows:
-            yield Row(*row)
+    def to_file(self, rows, file, delimiter=None):
+        """Write rows to a file-object.
 
+        :type rows: iterable
+        :param rows: Iterable of rows.
 
-def write_csv(filename, rows, delimiter=DELIMITER, encoding=ENCODING):
-    """
-    :type filename: string
-    :param filename: CSV filename.
+        :type file: file object
+        :param file: Destination file object.
+        """
 
-    :type rows: list
-    :param rows: A list of rows to be written to the csv file.
+        delimiter = self.get_delimiter(delimiter)
+        with file:
+            writer = csv.writer(file, delimiter=delimiter)
+            writer.writerows(rows)
 
-    :type delimiter: string
-    :param delimiter: CSV delimiter.
+    def to_filename(self, rows, filename, encoding=None, delimiter=None):
+        """Write rows to a filename.
 
-    :param encoding: string
-    :param encoding: CSV file encoding.
-    """
-    logger.info("Writing data to {}".format(filename))
-    with open(filename, 'w', newline='', encoding=encoding) as fp:
-        writer = csv.writer(fp, delimiter=delimiter)
-        writer.writerows(rows)
+        :type rows: iterable
+        :param rows: Iterable of rows.
 
+        :type filename: str
+        :param filename: Destination file name.
+        """
 
-def load_table(conn, table_name, filename, columns=None,
-               delimiter=DELIMITER, encoding=ENCODING, size=8192,
-               truncate_table=True, with_header=False):
-    """
-    :type conn: psycopg2.connection
-    :param conn: connection object returned by psycopg2.connect.
+        file = self.open_csv(filename, mode='w', encoding=encoding)
+        self.to_file(rows, file, delimiter=delimiter)
 
-    :type table_name: string
-    :param table_name: Destination table name.
+    def to_temp_file(self, rows):
+        """Write rows to a temporary file.
 
-    :type filename: string
-    :param filename: Name of the source file to be loaded to the table
+        :type rows: iterable
+        :param rows: Iterable of rows.
+        """
 
-    :type columns: list
-    :param columns: A list of column names. Provide this if you do not want to copy all columns.
-                    Else, None will copy all columns.
+        file = tempfile.NamedTemporaryFile(
+            mode='w+t',
+            encoding=self.encoding,
+            newline='',
+            suffix='.csv',
+            delete=False,
+        )
+        self.to_file(rows, file)
+        return file.name
 
-    :type delimiter: string
-    :param delimiter: The delimiter of source CSV file.
+    def extract(self, filename, query, delimiter=None):
+        """Extract the result of a SELECT query into a CSV file.
 
-    :type encoding: string
-    :param encoding: The encoding of source CSV file.
+        :type filename: str
+        :param filename: Query result CSV file name.
 
-    :type size: integer
-    :param size: Chunk size of copy_from method.
+        :type query: str
+        :param query: SELECT query to be executed.
 
-    :type truncate_table: boolean
-    :param truncate_table: If true, then the destination table will be truncated before copy.
-    """
+        :type delimiter: str
+        :param delimiter: CSV delimiter.
+        """
 
-    with conn, conn.cursor() as cursor:
-        if truncate_table:
-            logger.info("Truncating {} table".format(table_name))
-            cursor.execute("TRUNCATE TABLE {}".format(table_name))
+        delimiter = self.get_delimiter(delimiter)
+        copy_sql = "COPY ({query}) TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}'"
+        sql = copy_sql.format(query=query, delimiter=delimiter)
+        file = self.open_csv(filename, mode='w')
+        with file, self.conn, self.conn.cursor() as cursor:
+            cursor.copy_expert(sql, file)
 
-        logger.info("Copying from file {} to {} table".format(filename, table_name))
-        with open(filename, 'r', newline='', encoding=encoding) as fp:
-            if with_header:
-                next(fp)
-            cursor.copy_from(file=fp, table=table_name, sep=delimiter,
-                             columns=columns, size=size, null='')
+    def dump(self, filename, table_name, columns=None, delimiter=None):
+        """Dump a table into a file.
 
+        :type filename: str
+        :param filename: Query result CSV file name.
 
-def copy_table(query,
-               src_conn,
-               dst_conn,
-               dst_table_name,
-               use_named_cursor=False,
-               truncate_table=False,
-               itersize=-1):
-    """
-    Run query and import result to another database.
+        :type table_name: str
+        :param table_name: Table name to be dumped.
 
-    We use null="" in copy_from, because csv library dumps None as "" (empty string).
+        :type columns: list or None
+        :param columns: List of columns of the table to be dumped.
 
-    :type query: string
-    :param query: Query to be executed on source database.
+        :type delimiter: str
+        :param delimiter: CSV delimiter.
+        """
 
-    :type src_conn: psycopg2.connection
-    :param src_conn: Source database connection.
-
-    :type dst_conn: psycopg2.connection
-    :param dst_conn: Destination database connection.
-
-    :type dst_table_name: string
-    :param dst_table_name: Table name in destination database.
-
-    :type truncate_table: boolean
-    :param truncate_table: If true, destination table will be truncated before loading the data.
-    """
-    rows = extract_table(src_conn, query, use_named_cursor=use_named_cursor, itersize=itersize)
-    with tempfile.NamedTemporaryFile('w+t', encoding=ENCODING, newline='') as fp:
-        logger.info("Writing result to a temporary file.")
-        csv.writer(fp, delimiter=DELIMITER).writerows(rows)
-        fp.flush()
-        fp.seek(0)
-
-        with dst_conn, dst_conn.cursor() as cursor:
-            if truncate_table:
-                logger.info("Truncating {}.".format(dst_table_name))
-                cursor.execute('TRUNCATE {};'.format(dst_table_name))
-            logger.info("Copying result to {}".format(dst_table_name))
-            cursor.copy_from(file=fp, table=dst_table_name, sep=DELIMITER, null='')
-
-
-def dump(conn, query, filename, with_header=False):
-    """Execute query and dump data to filename.
-
-    :type conn: `psycopg2.connection`
-    :param conn: Database connection instance.
-
-    :type query: string
-    :param query: SQL SELECT query to be executed.
-
-    :type filename: string
-    :param filename: Output filename.
-    """
-    rows = extract_table(conn, query, with_header=with_header)
-    write_csv(filename, rows)
-
-
-def write_csv2(rows, fieldnames=None, file=None, filename=None):
-    if filename is not None:
-        file = open(filename, 'w', encoding=ENCODING, newline='')
-
-    if file is None:
-        raise ValueError('Please specify either filename or file.')
-
-    with file:
-        if fieldnames is None:
-            writer = csv.writer(file, delimiter=DELIMITER)
+        delimiter = self.get_delimiter(delimiter)
+        if columns is None:
+            columns = ''
         else:
-            writer = csv.DictWriter(
-                file,
-                fieldnames=fieldnames,
-                delimiter=DELIMITER,
-                extrasaction='ignore',
-            )
-        writer.writerows(rows)
+            columns = '({})'.format(','.join(columns))
 
+        copy_sql = "COPY {table_name} {columns} TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}'"
+        sql = copy_sql.format(table_name=table_name, columns=columns, delimiter=delimiter)
 
-def write_temp_csv(rows, fieldnames=None, prefix='', dir=None):
-    logger.info('Writing to a temporary CSV file.')
-    file = tempfile.NamedTemporaryFile(
-        mode='w+t',
-        encoding=ENCODING,
-        newline='',
-        prefix=prefix,
-        dir=dir,
-        suffix='.csv',
-        delete=False,
-    )
-    with file:
-        write_csv2(rows=rows, fieldnames=fieldnames, file=file)
-    return file.name
+        file = self.open_csv(filename, mode='w')
+        with file, self.conn, self.conn.cursor() as cursor:
+            cursor.copy_expert(sql, file)
 
+    def load_from_file(
+        self,
+        file,
+        table_name,
+        delimiter=None,
+        columns=None,
+        truncate_table=False,
+        with_header=True
+    ):
+        """Load data from a file into a table.
 
-def load_table2(conn, table_name, fields, filename=None, file=None):
-    if filename is not None:
-        file = open(filename, encoding=ENCODING, newline='')
+        :type file: file-object
+        :param file: Source file object.
 
-    if file is None:
-        raise ValueError('Please specify either filename or file.')
+        :type table_name: str
+        :param table_name: Destination table name.
 
-    copy_sql = "COPY {table_name} ({columns}) FROM STDIN "\
-               "WITH CSV " \
-               "NULL '' " \
-               "DELIMITER '{delimiter}'".format(
-        table_name=table_name,
-        columns=','.join(fields),
-        delimiter=DELIMITER,
-    )
+        :type delimiter: str or None
+        :param delimiter: CSV delimiter. If None, the default will be used.
 
-    logger.info('Loading data to table {}.'.format(table_name))
-    with file, conn, conn.cursor() as cursor:
-        cursor.copy_expert(sql=copy_sql, file=file)
+        :type columns: list or None
+        :param columns: List of columns of the table to be dumped.
 
+        :type truncate_table: bool
+        :param truncate_table: If true, the table will be truncated before loading the data.
 
-def remove_file(filename):
-    logger.info('Deleting file {}.'.format(filename))
-    try:
-        os.remove(filename)
-    except FileNotFoundError:
-        pass
+        :type with_header: bool
+        :param with_header: If true, the header will be skipped before loading the data.
+        """
 
+        delimiter = self.get_delimiter(delimiter)
+        with file, self.conn, self.conn.cursor() as cursor:
+            if truncate_table:
+                sql = 'TRUNCATE TABLE {}'.format(table_name)
+                cursor.execute(sql)
+            if with_header:
+                next(file)
+            cursor.copy_from(file, table=table_name, sep=delimiter, null='', columns=columns)
 
-def load_rows(conn, *, rows, table_name, prefix='', fields=None, dir=None):
-    if rows:
-        logger.info('Loading rows.')
-        filename = write_temp_csv(rows, fieldnames=fields, prefix=prefix, dir=dir)
-        load_table2(conn, table_name=table_name, fields=fields, filename=filename)
-        remove_file(filename)
+    def load_from_filename(self, filename, table_name, encoding=None, *args, **kwargs):
+        """Load data from a file `filename` into a table.
+
+        :type table_name: str
+        :param table_name: Destination table name.
+
+        :type encoding: str or None
+        :param encoding: File encoding. If None, the default will be used.
+        """
+
+        file = self.open_csv(filename, encoding=encoding)
+        self.load_from_file(file, table_name=table_name, *args, **kwargs)
+
+    def load_rows(self, rows, table_name, columns=None, truncate_table=False):
+        """Load rows into a table.
+
+        :type rows: iterable
+        :param rows: Iterable of rows.
+
+        :type table_name: str
+        :param table_name: Destination table name.
+
+        :type columns: list or None
+        :param columns: List of columns of the table to be dumped.
+
+        :type truncate_table: bool
+        :param truncate_table: If true, then the table will be truncated before loading the data.
+        """
+
+        filename = self.to_temp_file(rows)
+        self.load_from_filename(
+            filename,
+            table_name=table_name,
+            columns=columns,
+            truncate_table=truncate_table,
+        )
+        file.remove_file(filename)
+
+    def truncate(self, table_name):
+        """Truncate a table `table_name`.
+
+        :type table_name: str
+        :param table_name: Name of table to be truncated.
+        """
+
+        sql = 'TRUNCATE TABLE {}'.format(table_name)
+        with self.conn, self.conn.cursor() as cursor:
+            cursor.execute(sql)
