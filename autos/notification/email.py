@@ -9,17 +9,19 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 
-def send_email(send_from,
-              send_to,
-              subject,
-              text,
-              files=[],
-              server="smtp.gmail.com",
-              port=587,
-              username='',
-              password='',
-              isTls=True):
-
+def send_email(
+    send_from,
+    send_to,
+    subject,
+    text,
+    paths=[],
+    server="smtp.gmail.com",
+    port=587,
+    username='',
+    password='',
+    is_tls=True,
+    is_html=True,
+):
     """Send e-mail with or without attachment(s).
 
     :type send_from: string
@@ -34,8 +36,8 @@ def send_email(send_from,
     :type text: string
     :param text: E-mail text content.
 
-    :type files: list
-    :param files: Attachment file paths.
+    :type paths: list
+    :param paths: File attachment paths.
 
     :type server: string
     :param server: E-mail server address.
@@ -49,8 +51,11 @@ def send_email(send_from,
     :type password: string
     :param password: Login password.
 
-    :type isTls: bool
-    :param isTls: If true, TLS is used.
+    :type is_tls: bool
+    :param is_tls: If true, TLS is used. Default is False.
+
+    :type is_html: bool
+    :param is_html: If true, text is interpreted as HTML (default), otherwise plaintext.
     """
 
     if isinstance(send_to, str):
@@ -62,25 +67,26 @@ def send_email(send_from,
     message['Date'] = formatdate(localtime=True)
     message['Subject'] = subject
 
-    message.attach(MIMEText(text))
+    subtype = 'html' if is_html else 'plain'
+    message.attach(MIMEText(text, subtype, 'utf-8'))
 
-    for filename in files:
-        if not os.path.isfile(filename):
-            break
+    for path in paths:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(path)
 
         part = MIMEBase('application', "octet-stream")
-        with open(filename, 'rb') as fp:
+        with open(path, 'rb') as fp:
             part.set_payload(fp.read())
 
         encoders.encode_base64(part)
         part.add_header(
             'Content-Disposition',
-            'attachment; filename="{filename}"'.format(filename=os.path.basename(filename))
+            'attachment; filename="{}"'.format(os.path.basename(path))
         )
         message.attach(part)
 
     with smtplib.SMTP(server, port) as smtp:
-        if isTls:
+        if is_tls:
             smtp.starttls()
         smtp.login(username,password)
         smtp.sendmail(send_from, send_to, msg=message.as_string())
