@@ -234,7 +234,7 @@ class Postgres:
                 next(file)
             cursor.copy_from(file, table=table_name, sep=delimiter, null='', columns=columns)
 
-    def load_from_filename(self, filename, table_name, encoding=None, *args, **kwargs):
+    def load_from_filename(self, filename, table_name, encoding=None, **load_kwargs):
         """Load data from a file `filename` into a table.
 
         :type table_name: str
@@ -245,7 +245,7 @@ class Postgres:
         """
 
         file = self.open_csv(filename, encoding=encoding)
-        self.load_from_file(file, table_name=table_name, *args, **kwargs)
+        self.load_from_file(file, table_name=table_name, **load_kwargs)
 
     def load_rows(self, rows, table_name, columns=None, truncate_table=False):
         """Load rows into a table.
@@ -280,5 +280,4 @@ class Postgres:
         """
 
         sql = 'TRUNCATE TABLE {}'.format(table_name)
-        with self.conn, self.conn.cursor() as cursor:
-            cursor.execute(sql)
+        self.execute(sql)
