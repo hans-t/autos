@@ -144,7 +144,7 @@ class Postgres:
         self.to_file(rows, file)
         return file.name
 
-    def extract(self, filename, query, delimiter=None):
+    def extract(self, filename, query, delimiter=None, encoding=None):
         """Extract the result of a SELECT query into a CSV file.
 
         :type filename: str
@@ -158,13 +158,14 @@ class Postgres:
         """
 
         delimiter = self.get_delimiter(delimiter)
-        copy_sql = "COPY ({query}) TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}'"
-        sql = copy_sql.format(query=query, delimiter=delimiter)
+        encoding = self.get_encoding(encoding)
+        copy_sql = "COPY ({query}) TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}' ENCODING '{encoding}'"
+        sql = copy_sql.format(query=query, delimiter=delimiter, encoding=encoding)
         file = self.open_csv(filename, mode='w')
         with file, self.conn, self.conn.cursor() as cursor:
             cursor.copy_expert(sql, file)
 
-    def dump(self, filename, table_name, columns=None, delimiter=None):
+    def dump(self, filename, table_name, columns=None, delimiter=None, encoding=None):
         """Dump a table into a file.
 
         :type filename: str
@@ -181,13 +182,14 @@ class Postgres:
         """
 
         delimiter = self.get_delimiter(delimiter)
+        encoding = self.get_encoding(encoding)
         if columns is None:
             columns = ''
         else:
             columns = '({})'.format(','.join(columns))
 
-        copy_sql = "COPY {table_name} {columns} TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}'"
-        sql = copy_sql.format(table_name=table_name, columns=columns, delimiter=delimiter)
+        copy_sql = "COPY {table_name} {columns} TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}' ENCODING '{encoding}'"
+        sql = copy_sql.format(table_name=table_name, columns=columns, delimiter=delimiter, encoding=encoding)
 
         file = self.open_csv(filename, mode='w')
         with file, self.conn, self.conn.cursor() as cursor:
