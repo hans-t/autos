@@ -20,8 +20,8 @@ class Service:
             return self._service
         raise ServiceNotInitialized('You need to call init_service() to initialize service.')
 
-    def init_service(self, credentials_file, client_secrets_file):
-        """Initialize Google API authenticated service.
+    def _get_credentials(self, credentials_file, client_secrets_file):
+        """Gets cached Google credentials, or generates a new one.
 
         :type credentials_file: string
         :param credentials_file: Path to cached credentials file.
@@ -32,10 +32,21 @@ class Service:
 
         storage = Storage(credentials_file)
         credentials = storage.get()
-
         if credentials is None or credentials.invalid:
             flow = flow_from_clientsecrets(client_secrets_file, scope=self.scope)
             credentials = tools.run_flow(flow, storage, tools.argparser.parse_args([]))
+        return credentials
 
+    def init_service(self, credentials_file, client_secrets_file):
+        """Initializes Google API authenticated service.
+
+        :type credentials_file: string
+        :param credentials_file: Path to cached credentials file.
+
+        :type client_secrets_file: string
+        :param client_secrets_file: Path to client secrets file.
+        """
+
+        credentials = self._get_credentials(credentials_file, client_secrets_file)
         http = credentials.authorize(httplib2.Http())
         self._service = build(self.api_name, self.api_version, http=http)
