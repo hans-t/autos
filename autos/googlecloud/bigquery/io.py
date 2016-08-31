@@ -1,11 +1,15 @@
 import logging
 
 from gcloud import bigquery
-from gcloud import storage
 
 from .jobs import execute
 from .utils import random_string
+from .errors import MissingSchema
+from .errors import TableNotFound
 from .errors import DatasetNotFound
+from .errors import LoadConfigurationError
+
+from ..storage.bucket import Bucket
 
 
 logger = logging.getLogger(__name__)
@@ -40,8 +44,8 @@ class BigQueryIO:
         self,
         json_credentials_path,
         project,
-        import_bucket_name,
-        export_bucket_name,
+        import_bucket,
+        export_bucket,
     ):
         """
         :type json_credentials_path: str
@@ -50,24 +54,30 @@ class BigQueryIO:
         :type project: str
         :param project: Google developers console project name.
 
-        :type import_bucket_name: str
-        :param import_bucket_name: Google Cloud Storage bucket to use when importing data to BigQuery.
+        :type import_bucket: str
+        :param import_bucket: Google Cloud Storage bucket to use when importing data to BigQuery.
 
-        :type export_bucket_name: str
-        :param export_bucket_name: Google Cloud Storage bucket to use when exporting data from BigQuery.
+        :type export_bucket: str
+        :param export_bucket: Google Cloud Storage bucket to use when exporting data from BigQuery.
         """
 
         self.project = project
-        self.bq_client = bigquery \
-            .Client \
-            .from_service_account_json(json_credentials_path, project)
-        self.storage_client = storage \
-            .Client \
-            .from_service_account_json(json_credentials_path, project)
-        self.import_bucket = self.storage_client.bucket(import_bucket_name)
-        self.export_bucket = self.storage_client.bucket(export_bucket_name)
+        self.bq_client = bigquery.Client.from_service_account_json(
+            json_credentials_path=json_credentials_path,
+            project=project,
+        )
+        self.import_bucket = Bucket(
+            name=import_bucket,
+            json_credentials_path=json_credentials_path,
+            project=project,
+        )
+        self.export_bucket = Bucket(
+            name=export_bucket,
+            json_credentials_path=json_credentials_path,
+            project=project,
+        )
 
-    def get_dataset(self, name, create=False, raises=True):
+    def get_dataset(self, name, create=False, raises=False):
         """Get dataset instance.
 
         :type name: str
@@ -90,11 +100,11 @@ class BigQueryIO:
             raise DatasetNotFound('{}:{}'.format(self.project, name))
         return dataset
 
-    def get_table(self, dataset_name, name, create=False, schema=(), raises=True):
+    def get_table(self, dataset_name, name, schema=(), create=False, raises=False):
         """Get table instance.
 
         :type dataset_name: str
-        :param dataset_name: Dataset name in which the table lives in.
+        :param dataset_name: Existing dataset name.
 
         :type name: str
         :param name: Table name.
@@ -107,44 +117,32 @@ class BigQueryIO:
                        https://cloud.google.com/bigquery/docs/reference/v2/tables#resource-representations.
         """
 
-        dataset = self.get_dataset(name=dataset_name)
+        dataset = self.get_dataset(name=dataset_name, raises=True)
         table = dataset.table(name=name)
         if table.exists():
             table.reload()
-        elif create and schema:
-            table.schema = make_bq_schema(schema)
-            table.create()
+        elif create:
+            if schema:
+                table.schema = make_bq_schema(schema)
+                table.create()
+            else:
+                raise MissingSchema('You need to provide schema when creating table.')
         elif raises:
             raise TableNotFound('{}:{}.{}'.format(self.project, dataset_name, name))
         return table
-
-    def import_files_to_gcs(self, *paths):
-        """Import files to import bucket.
-
-        :type paths: list
-        :param paths: List of path of files to import.
-
-        :rtype: iterator
-        :returns: Iterator of list of GCS paths.
-        """
-
-        bucket = self.import_bucket
-        bucket_name = bucket.name
-        for path in paths:
-            blob = bucket.blob(blob_name=os.path.split(path)[1])
-            with open(path, 'rb') as fp:
-                blob.upload_from_file(file_obj=fp, rewind=True, num_retries=10)
-            yield 'gs://{}/{}'.format(bucket_name, blob.name)
 
     def copy_csv_from(
         self,
         dataset_name,
         table_name,
-        *paths,
+        paths,
         allow_quoted_newlines=False,
-        field_delimiter=DEFAULT_DELIMITER,
+        delimiter=DEFAULT_DELIMITER,
         skip_leading_rows=0,
-        write_disposition='WRITE_TRUNCATE',
+        write_disposition='WRITE_EMPTY',
+        create_disposition='CREATE_NEVER',
+        max_bad_records=0,
+        schema=(),
     ):
         """Copy CSV files to existing BigQuery table. This method is designed to follow
         the behaviour of 'COPY FROM' command of PostgreSQL.
@@ -165,53 +163,56 @@ class BigQueryIO:
         :type allow_quoted_newlines: bool
         :param allow_quoted_newlines: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.allowQuotedNewlines
 
-        :type field_delimiter: str
-        :param field_delimiter: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.fieldDelimiter
+        :type delimiter: str
+        :param delimiter: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.fieldDelimiter
 
         :type skip_leading_rows: int
         :param skip_leading_rows: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.skipLeadingRows
 
         :type write_disposition: str
         :param write_disposition: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.writeDisposition
+
+        :type create_disposition: str
+        :param create_disposition: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.createDisposition
+
+        :type schema: list
+        :param schema: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.skipLeadingRows
         """
 
-        source_uris = self.import_files_to_gcs(*paths)
+        if create_disposition == 'CREATE_IF_NEEDED' and not schema:
+            raise LoadConfigurationError(
+                'Table does not exist and will be created because you set ' \
+                'create_disposition=CREATE_IF_NEEDED, ' \
+                'but schema is empty. Please provide schema.'
+            )
+
+        job_name = random_string()
         destination_table = self.get_table(dataset_name, table_name)
+        source_uris = self.import_bucket.upload_files(paths)
         job = self.bq_client.load_table_from_storage(
-            random_string(),
+            job_name,
             destination_table,
             *source_uris,
         )
-        job.create_disposition = 'CREATE_NEVER'
         job.source_format = 'CSV'
         job.encoding = DEFAULT_ENCODING
         job.allow_quoted_newlines = allow_quoted_newlines
-        job.field_delimiter = field_delimiter
+        job.field_delimiter = delimiter
         job.skip_leading_rows = skip_leading_rows
         job.write_disposition = write_disposition
+        job.create_disposition = create_disposition
+        job.max_bad_records = max_bad_records
+        job.schema = make_bq_schema(schema)
         execute(job)
 
-    def export_to_file(self, path, prefix):
-        """Export files in GCS with filename prefix to a single file.
-
-        :type path: str
-        :param path: Destination path.
-
-        :type prefix: str
-        :param prefix: Prefix of paths in Google Cloud Storage to be downloaded.
-        """
-
-        bucket = self.export_bucket
-        blobs = bucket.list_blobs(prefix=prefix)
-        with open(path, 'wb') as fp:
-            for blob in blobs:
-                blob.download_to_file(fp)
-
-    def execute_query(self, query, priority='BATCH', use_legacy_sql=True):
+    def execute_query(self, query, priority='BATCH'):
         """Execute BigQuery query.
 
         :type query: str
         :param query: BigQuery query to execute.
+
+        :type priority: str
+        :param priority: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.query.priority
 
         :rtype: ``gcloud.bigquery.table.Table``
         :returns: Table instance containing query result.
@@ -220,7 +221,7 @@ class BigQueryIO:
         job_name = random_string()
         job = self.bq_client.run_async_query(job_name, query=query)
         job.priority = priority
-        job.use_legacy_sql = use_legacy_sql
+        job.use_legacy_sql = True
         execute(job)
         return job.destination
 
@@ -228,8 +229,8 @@ class BigQueryIO:
         self,
         table,
         prefix,
-        compression=None,
         delimiter=DEFAULT_DELIMITER,
+        compression='NONE',
     ):
         """Export BigQuery table to Google Cloud Storage bucket.
 
@@ -239,16 +240,17 @@ class BigQueryIO:
         :type prefix: str
         :param prefix: Prefix of exported paths in Google Cloud Storage.
         """
+
         job_name = random_string()
-        destination = 'gs://{}/{}-*.csv.gz'.format(self.export_bucket_name, prefix)
-        job = self.bq_client.extract_table_to_storage(job_name, table, destination)
+        gcs_uri = 'gs://{}/{}-*'.format(self.export_bucket.name, prefix)
+        job = self.bq_client.extract_table_to_storage(job_name, table, gcs_uri)
         job.compression = compression
         job.field_delimiter = delimiter
         job.print_header = True
         job.destination_format = 'CSV'
         execute(job)
 
-    def copy_csv_to(self, query, path, compression=None, delimiter='\t'):
+    def copy_csv_to(self, query, path, delimiter=DEFAULT_DELIMITER, compression='NONE'):
         """Copy BigQuery query result to a file. This method is designed to follow
         the behaviour of 'COPY TO' command of PostgreSQL.
 
@@ -258,15 +260,19 @@ class BigQueryIO:
         :type path: str
         :param path: Destination path.
 
+        :type delimiter: str
+        :param delimiter: CSV file delimiter.
+
         :type compression: str
-        :param compression: File compression, either 'GZIP' or None.
+        :param compression: File compression, either 'GZIP' or 'NONE'.
         """
 
         table = self.execute_query(query)
+        prefix = table.name
         self.export_table_as_csv(
             table,
-            prefix=table.name,
+            prefix=prefix,
             compression=compression,
             delimiter=delimiter,
         )
-        self.export_to_file(path, prefix=table.name)
+        self.export_bucket.download_files(path, prefix=prefix)
