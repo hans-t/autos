@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 
 
 def generate_sheet_id():
-    """Generate 32-bit integer for sheet_id."""
+    """Generate random sheet ID."""
 
     return int(time.time())
 
 
 class Sheets(Service):
-    """Abstraction over Sheets API to simplify operations.
+    """Sheets API wrapper to perform common tasks.
+    Current API version: v4.
 
     API Documentations:
     - https://developers.google.com/sheets/reference/rest/v4/spreadsheets
@@ -30,10 +31,12 @@ class Sheets(Service):
     def __init__(
         self,
         scope='https://www.googleapis.com/auth/drive',
-        api_name='sheets',
-        api_version='v4'
     ):
-        super().__init__(scope=scope, api_name=api_name, api_version=api_version)
+        super().__init__(
+            scope=scope,
+            api_name='sheets',
+            api_version='v4',
+        )
         self._spreadsheet_id = None
         self._metadata = {}
         self._properties = {}
@@ -55,6 +58,8 @@ class Sheets(Service):
         self.reload()
 
     def reload(self):
+        """Refreshes sheets' metadata and properties."""
+
         self.reload_metadata()
         self.reload_properties()
 
@@ -63,6 +68,8 @@ class Sheets(Service):
         return self._metadata
 
     def reload_metadata(self):
+        """Refreshes sheets metadata."""
+
         self._metadata = self.spreadsheets.get(
             spreadsheetId=self.spreadsheet_id,
             includeGridData=False,
@@ -73,28 +80,61 @@ class Sheets(Service):
         return self._properties
 
     def reload_properties(self):
+        """Refreshes sheets' properties."""
+
         sheets = self.metadata.get('sheets', [])
         self._properties = {sheet['properties']['title']: sheet['properties'] for sheet in sheets}
 
     def get_sheet_id(self, sheet_name):
-        """Map sheet name to its id."""
+        """Maps sheet name to its id."""
 
         try:
             return self.properties[sheet_name]['sheetId']
-        except KeyError:
-            raise SheetNotFound('{} does not exist.'.format(sheet_name))
+        except KeyError as e:
+            raise SheetNotFound('{} does not exist.'.format(sheet_name)) from e
 
-    def add(self, title='New Sheet', index=0, row_count=10000, column_count=10, batch=False):
-        """Add new sheet with the given title and positioned at index."""
+    def execute(self, request, batch):
+        """Executes a request if batch is False, else return the request.
 
-        if title in self.properties:
-            raise SheetAlreadyExists('A sheet with the name {} already exists.'.format(title))
+        :type request: dict
+        :param request: Dict request to be passed to Sheets API.
+
+        :type batch: bool
+        :param batch: If true, returns request for batching, else execute immediately.
+        """
+
+        if batch:
+            return request
+        return self.batch_update(request)
+
+    def add(self, name='New Sheet', index=0, row_count=10000, column_count=10, batch=False):
+        """Adds a new sheet of size row_count and column_count with the given
+        name and positioned at index.
+
+        :type name: str
+        :param name: Sheet name.
+
+        :type index: int
+        :param index: Sheet position.
+
+        :type row_count: int
+        :param row_count: Number of rows in the new sheet.
+
+        :type column_count: int
+        :param column_count: Number of columns in the new sheet.
+
+        :type batch: bool
+        :param batch: If true, returns request for batching, else execute immediately.
+        """
+
+        if name in self.properties:
+            raise SheetAlreadyExists('A sheet with the name {} already exists.'.format(name))
 
         request = {
             'addSheet': {
                 'properties': {
                     'sheetId': generate_sheet_id(),
-                    'title': title,
+                    'title': name,
                     'index': index,
                     'sheetType': 'GRID',
                     'gridProperties': {
@@ -104,30 +144,37 @@ class Sheets(Service):
                 },
             },
         }
-        if batch:
-            return request
-        return self.batch_update(request)
+        return self.execute(request, batch)
 
     def delete(self, sheet_id, batch=False):
-        """Delete sheet by its sheet_id."""
+        """Deletes sheet by its sheet_id.
+
+        :type sheet_id: int
+        :param sheet_id: Sheet ID.
+
+        :type batch: bool
+        :param batch: If true, returns request for batching, else execute immediately.
+        """
 
         request = {
             'deleteSheet': {
                 'sheetId': sheet_id,
             },
         }
-        if batch:
-            return request
-        return self.batch_update(request)
+        return self.execute(request, batch)
 
     def delete_by_name(self, sheet_name, batch=False):
-        """Delete sheet by its name."""
+        """Deletes sheet by its name."""
 
         sheet_id = self.get_sheet_id(sheet_name)
         return self.delete(sheet_id, batch=batch)
 
     def rename(self, current_sheet_name, new_sheet_name, batch=False):
-        """Rename a sheet name."""
+        """Renames a sheet name.
+
+        :type batch: bool
+        :param batch: If true, returns request for batching, else execute immediately.
+        """
 
         request = {
             'updateSheetProperties': {
@@ -138,13 +185,10 @@ class Sheets(Service):
                 'fields': 'title',
             }
         }
-
-        if batch:
-            return request
-        return self.batch_update(request)
+        return self.execute(request, batch)
 
     def reset(self, row_count=10000, column_count=10):
-        """Remove all sheets and add a new blank sheet with the given
+        """Removes all sheets and add a new blank sheet with the given
         numbers of rows and columns.
         """
 
@@ -170,6 +214,15 @@ class Sheets(Service):
             return response
 
     def update_values(self, range, values):
+        """Updates rows in range with the given values.
+
+        :type range: str
+        :param range: The A1 notation of the values to update.
+
+        :type values: list
+        :param values: Rows within the range.
+        """
+
         body = { 'range': range, 'values': values }
         return self.spreadsheets.values().update(
             spreadsheetId=self.spreadsheet_id,
@@ -179,6 +232,15 @@ class Sheets(Service):
         ).execute()
 
     def get_values(self, range):
+        """Retrieves data in range.
+
+        :type range: str
+        :param range: The A1 notation of the values to retrieve.
+
+        :rtype: list
+        :returns: Rows within the range.
+        """
+
         response = self.spreadsheets.values().get(
             spreadsheetId=self.spreadsheet_id,
             range=range,
