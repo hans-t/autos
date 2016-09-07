@@ -240,7 +240,7 @@ class Postgres:
                             "ENCODING '{encoding}'"
 
         columns = '({})'.format(','.join(columns)) if columns is not None else ''
-        copy_sql = copy_sql.format(
+        copy_sql = copy_sql_template.format(
             table_name=table_name,
             columns=columns,
             header=header,
