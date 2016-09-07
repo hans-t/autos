@@ -7,7 +7,7 @@ from requests.exceptions import ConnectionError
 from facebookads.objects import CustomAudience
 from facebookads.exceptions import FacebookRequestError
 
-from utils.iterable import chunk_iterable
+from autos.utils.iterable import chunk_iterable
 from .errors import RetryError
 from .errors import OperationError
 from .version import API_VERSION
