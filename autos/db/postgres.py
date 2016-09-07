@@ -201,7 +201,7 @@ class Postgres:
         table_name,
         columns=None,
         header=True,
-        null='',
+        null="''",
         delimiter='\t',
         truncate_table=False,
     ):
@@ -232,13 +232,15 @@ class Postgres:
 
         delimiter = self.get_delimiter(delimiter)
         copy_sql_template = "COPY {table_name} {columns} " \
-                            "FROM STDIN WITH " \
-                            "FORMAT CSV " \
-                            "HEADER {header} " \
-                            "NULL {null} " \
-                            "DELIMITER '{delimiter}' " \
-                            "ENCODING '{encoding}'"
+                            "FROM STDIN WITH (" \
+                            "FORMAT CSV," \
+                            "HEADER {header}," \
+                            "NULL {null}," \
+                            "DELIMITER '{delimiter}'," \
+                            "ENCODING '{encoding}'" \
+                            ")"
 
+        header = 'TRUE' if header else 'FALSE'
         columns = '({})'.format(','.join(columns)) if columns is not None else ''
         copy_sql = copy_sql_template.format(
             table_name=table_name,
