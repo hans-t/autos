@@ -8,17 +8,12 @@ from facebookads.objects import CustomAudience
 from facebookads.exceptions import FacebookRequestError
 
 from utils.iterable import chunk_iterable
+from .errors import RetryError
+from .errors import OperationError
+from .version import API_VERSION
 
 
 logger = logging.getLogger(__name__)
-
-
-class RetryError(Exception):
-    pass
-
-
-class OperationError(Exception):
-    pass
 
 
 def get_schema(type):
@@ -29,10 +24,10 @@ def get_schema(type):
     elif type == 'email':
         return CustomAudience.Schema.email_hash
     else:
-        raise Exception("Wrong type. Only 'device_id', 'email' and 'phone_number' are available")
+        raise ValueError("Unknown type. Please choose from ('device_id', 'email', 'phone_number')")
 
 
-def create(ad_account_id, names, id_map):
+def create(ad_account_id, names):
     """
     :type ad_account_id: int
     :param ad_account_id: Facebook ad account id.
@@ -46,6 +41,7 @@ def create(ad_account_id, names, id_map):
                    The values are custom audience IDs.
     """
 
+    audience_ids = {}
     for name in names:
         audience = CustomAudience(parent_id='act_{}'.format(ad_account_id))
         audience.update({
@@ -53,33 +49,37 @@ def create(ad_account_id, names, id_map):
             CustomAudience.Field.subtype: CustomAudience.Subtype.custom,
         })
         resp = audience.remote_create()
-        id_map[name] = resp.get_id()
+        logger.info('Audience {} created.'.format(name))
+        audience_ids[name] = resp.get_id()
+    return audience_ids
 
 
 def delete(audience_ids):
     """
+    Delete custom audiences by their IDs.
+
     :type audience_ids: list
     :param audience_ids: A list of audience IDs.
     """
 
     for audience_id in audience_ids:
-        logger.info('Deleting CA with id', audience_id)
         try:
             resp = CustomAudience(audience_id).remote_delete()
         except FacebookRequestError as e:
             logger.exception(e)
+        else:
+            logger.info('Audience with id {} was deleted.'.format(audience_id))
 
 
-def read(audiences, fb_access_token, api_version='v2.6', fields=None):
+def read(audiences, fb_access_token, fields=None):
     """
+    Get information about custom audiences.
+
     :type audiences: tuple
     :param audiences: 2-tuple (audience_name, audience_id).
 
     :type fb_access_token: string
     :param fb_access_token: Facebook access token.
-
-    :type api_version: string
-    :param api_version: Facebook API version.
 
     :type fields: list
     :param fields: A list of facebook custom audience fields as described in:
@@ -94,7 +94,7 @@ def read(audiences, fb_access_token, api_version='v2.6', fields=None):
 
     for audience_name, audience_id in audiences:
         result = requests.get(
-            endpoint_url.format(api_version=api_version, audience_id=audience_id),
+            endpoint_url.format(api_version=API_VERSION, audience_id=audience_id),
             params=params,
             headers=headers,
         ).json()
@@ -110,11 +110,13 @@ def read(audiences, fb_access_token, api_version='v2.6', fields=None):
 
 def update(custom_audience, schema, chunks, *, operation='add', max_retry=6):
     """
+    Updates custom audience.
+
     :type custom_audience: facebookads.objects.CustomAudience
     :param custom_audience: An instance of CustomAudience.
 
     :type schema: string
-    :param schema: Defined as class attributes inside CustomAudience.Schema.
+    :param schema: CustomAudience.Schema attribute.
 
     :type chunks: list
     :param chunks: A list of list of values to be passed on to Facebook.
@@ -134,7 +136,7 @@ def update(custom_audience, schema, chunks, *, operation='add', max_retry=6):
     elif operation == 'remove':
         _update = custom_audience.remove_users
     else:
-        raise OperationError('Only add and remove are available.')
+        raise OperationError("Please choose from ('add', 'remove').")
 
     for idx, chunk in enumerate(chunks):
         for i in range(max_retry):
@@ -155,7 +157,7 @@ def update(custom_audience, schema, chunks, *, operation='add', max_retry=6):
 
 def add_users(audience_id, iterable, *, type, chunksize=12000):
     """
-    Add users to custom audience.
+    Adds users to custom audience.
 
     :type audience_id: string
     :param audience_id: Custom audience ID.
@@ -179,7 +181,7 @@ def add_users(audience_id, iterable, *, type, chunksize=12000):
 
 def remove_users(audience_id, iterable, *, type, chunksize=1000):
     """
-    Remove users from custom audience.
+    Removes users from custom audience.
 
     :type audience_id: string
     :param audience_id: Custom audience ID.
