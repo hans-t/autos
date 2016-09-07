@@ -199,12 +199,14 @@ class Postgres:
         self,
         file,
         table_name,
-        delimiter=None,
         columns=None,
+        header=True,
+        null='',
+        delimiter='\t',
         truncate_table=False,
-        with_header=True
     ):
-        """Load data from a file into a table.
+        """Load data from a file into a table using copy_expert(). See:
+        https://www.postgresql.org/docs/current/static/sql-copy.html
 
         :type file: file-object
         :param file: Source file object.
@@ -212,27 +214,44 @@ class Postgres:
         :type table_name: str
         :param table_name: Destination table name.
 
-        :type delimiter: str or None
-        :param delimiter: CSV delimiter. If None, the default will be used.
-
         :type columns: list or None
         :param columns: List of columns of the table to be dumped.
 
+        :type header: str
+        :param header: If true, the header will be skipped before loading the data.
+
+        :type null: str
+        :param null: Specifies the string that represents a null value.
+
+        :type delimiter: str or None
+        :param delimiter: CSV delimiter. If None, the default will be used.
+
         :type truncate_table: bool
         :param truncate_table: If true, the table will be truncated before loading the data.
-
-        :type with_header: bool
-        :param with_header: If true, the header will be skipped before loading the data.
         """
 
         delimiter = self.get_delimiter(delimiter)
+        copy_sql_template = "COPY {table_name} {columns} " \
+                            "FROM STDIN WITH " \
+                            "FORMAT CSV " \
+                            "HEADER {header} " \
+                            "NULL {null} " \
+                            "DELIMITER '{delimiter}' " \
+                            "ENCODING '{encoding}'"
+
+        columns = '({})'.format(','.join(columns)) if columns is not None else ''
+        copy_sql = copy_sql.format(
+            table_name=table_name,
+            columns=columns,
+            header=header,
+            null=null,
+            delimiter=delimiter,
+            encoding=file.encoding,
+        )
         with file, self.conn, self.conn.cursor() as cursor:
             if truncate_table:
-                sql = 'TRUNCATE TABLE {}'.format(table_name)
-                cursor.execute(sql)
-            if with_header:
-                next(file)
-            cursor.copy_from(file, table=table_name, sep=delimiter, null='', columns=columns)
+                cursor.execute('TRUNCATE TABLE {}'.format(table_name))
+            cursor.copy_expert(copy_sql, file)
 
     def load_from_filename(self, filename, table_name, encoding=None, **load_kwargs):
         """Load data from a file `filename` into a table.
