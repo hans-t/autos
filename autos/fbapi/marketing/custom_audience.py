@@ -155,7 +155,7 @@ def update(custom_audience, schema, chunks, *, operation='add', max_retry=6):
             raise RetryError('Retried {} times and failed'.format(MAX_RETRY))
 
 
-def add_users(audience_id, iterable, *, type, chunksize=12000):
+def add_users(audience_id, iterable, *, type, chunksize=8000):
     """
     Adds users to custom audience.
 
