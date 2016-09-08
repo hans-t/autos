@@ -1,4 +1,5 @@
 import csv
+import glob
 import logging
 import tempfile
 import itertools
@@ -256,7 +257,7 @@ class Postgres:
             cursor.copy_expert(copy_sql, file)
 
     def load_from_filename(self, filename, table_name, encoding=None, **load_kwargs):
-        """Load data from a file `filename` into a table.
+        """Load data from a file `filename` into a table `table_name`.
 
         :type table_name: str
         :param table_name: Destination table name.
@@ -267,6 +268,37 @@ class Postgres:
 
         file = self.open_csv(filename, encoding=encoding)
         self.load_from_file(file, table_name=table_name, **load_kwargs)
+
+    def load_from_filenames(self, table_name, glob_pattern='', paths=(), encoding=None, **load_kwargs):
+        """Load files from a list of paths or pathnames that match glob pattern.
+
+        :type table_name: str
+        :param table_name: Destination table name.
+
+        :type glob_pattern: str
+        :param glob_pattern: Pattern to match pathnames.
+                             This argument will be considered first before `paths`.
+
+        :type paths: iterable
+        :param paths: An iterable of paths.
+
+        :type encoding: str or None
+        :param encoding: File encoding. If None, the default will be used.
+        """
+
+        if not glob_pattern and not paths:
+            raise ValueError("glob_pattern or paths must be provided.")
+
+        if glob_pattern:
+            paths = glob.iglob(glob_pattern)
+
+        for path in paths:
+            self.load_from_filename(
+                filename=path,
+                table_name=table_name,
+                encoding=encoding,
+                **load_kwargs,
+            )
 
     def load_rows(self, rows, table_name, columns=None, truncate_table=False):
         """Load rows into a table.

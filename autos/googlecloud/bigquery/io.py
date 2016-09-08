@@ -250,24 +250,34 @@ class BigQueryIO:
         job.destination_format = 'CSV'
         execute(job)
 
-    def copy_csv_to(self, query, path, delimiter=DEFAULT_DELIMITER, compression='NONE'):
-        """Copy BigQuery query result to a file. This method is designed to follow
+    def copy_csv_to(
+        self,
+        query,
+        dir,
+        delimiter=DEFAULT_DELIMITER,
+        compression='NONE',
+        priority='BATCH',
+    ):
+        """Copy BigQuery query result to files. This method is designed to imitate
         the behaviour of 'COPY TO' command of PostgreSQL.
 
         :type query: str
         :param query: BigQuery query to execute.
 
-        :type path: str
-        :param path: Destination path.
+        :type dir: str
+        :param dir: Destination directory.
 
         :type delimiter: str
         :param delimiter: CSV file delimiter.
 
         :type compression: str
         :param compression: File compression, either 'GZIP' or 'NONE'.
+
+        :rtype: list
+        :returns: A list of query result files.
         """
 
-        table = self.execute_query(query)
+        table = self.execute_query(query, priority=priority)
         prefix = table.name
         self.export_table_as_csv(
             table,
@@ -275,4 +285,4 @@ class BigQueryIO:
             compression=compression,
             delimiter=delimiter,
         )
-        self.export_bucket.download_files(path, prefix=prefix)
+        yield from self.export_bucket.download_files(dir, prefix=prefix)

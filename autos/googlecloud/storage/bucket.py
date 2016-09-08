@@ -50,17 +50,22 @@ class Bucket:
                 blob.upload_from_file(file_obj=fp, rewind=True, num_retries=10)
             yield 'gs://{}/{}'.format(self.name, blob.name)
 
-    def download_files(self, path, prefix):
-        """Download files which names match prefix to a single file.
+    def download_files(self, dir, prefix):
+        """Download files which names match prefix to a directory dir.
 
-        :type path: str
-        :param path: Destination path.
+        :type dir: str
+        :param dir: Destination directory.
 
         :type prefix: str
         :param prefix: Prefix of paths in Google Cloud Storage to be downloaded.
+
+        :rtype: list
+        :returns: A list of downloaded files.
         """
 
         blobs = self.bucket.list_blobs(prefix=prefix)
-        with open(path, 'wb') as fp:
-            for blob in blobs:
+        for blob in blobs:
+            path = os.path.join(dir, blob.name)
+            with open(path, 'wb') as fp:
                 blob.download_to_file(fp)
+            yield path
