@@ -15,14 +15,18 @@ class TestPostgres(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.mock_open = patcher.start()
 
-        self.postgres = postgres.Postgres()
-        self.postgres.connect(dsn='host=127.0.0.1 user=ubuntu')
+        self.postgres = postgres.Postgres.connect(dsn='host=127.0.0.1 user=ubuntu')
         self.mock_cursor = self.postgres \
                                .conn \
                                .cursor \
                                .return_value \
                                .__enter__ \
                                .return_value
+
+    def test_connect(self):
+        self.mock_psycopg2.connect.return_value = 'connection'
+        pg = postgres.Postgres.connect(dsn='host=127.0.0.1 user=ubuntu')
+        self.assertEqual(pg.conn, 'connection')
 
     def test_default_encoding(self):
         self.postgres.encoding = 'utf-8'
@@ -46,23 +50,12 @@ class TestPostgres(unittest.TestCase):
         expected = ';'
         self.assertEqual(actual, expected)
 
-    def test_conn(self):
-        self.postgres._conn = None
-        with self.assertRaises(RuntimeError):
-            self.postgres.conn
-
     def test_open_csv(self):
         self.postgres.open_csv(filename='test.csv', encoding='utf-32')
         self.mock_open(filename='test.csv', mode='r', encoding='utf-32', newline='')
 
         self.postgres.open_csv(filename='test.csv', mode='w', encoding='utf-32')
         self.mock_open(filename='test.csv', mode='w', encoding='utf-32', newline='')
-
-    def test_connect(self):
-        self.postgres._conn = None
-        self.mock_psycopg2.connect.return_value = 'connection'
-        self.postgres.connect(dsn='host=127.0.0.1 user=ubuntu')
-        self.assertEqual(self.postgres.conn, 'connection')
 
     def test_execute(self):
         query = 'SELECT * FROM public.test LIMIT 1'

@@ -16,17 +16,16 @@ logger = logging.getLogger(__name__)
 
 
 class Postgres:
-    def __init__(self):
+    @classmethod
+    def connect(cls, *args, **kwargs):
+        """Establish connection to database."""
+
+        return cls(conn=psycopg2.connect(*args, **kwargs))
+
+    def __init__(self, conn):
         self.encoding = 'utf-8'
         self.delimiter = '\t'
-        self._conn = None
-
-    @property
-    def conn(self):
-        if self._conn is not None:
-            return self._conn
-        else:
-            raise RuntimeError('Connection has not been initialized.')
+        self.conn = conn
 
     def get_encoding(self, encoding):
         """Get encoding, use default if None.
@@ -57,11 +56,6 @@ class Postgres:
 
         encoding = self.get_encoding(encoding)
         return open(filename, mode=mode, encoding=encoding, newline='')
-
-    def connect(self, *args, **kwargs):
-        """Establish connection to database."""
-
-        self._conn = psycopg2.connect(*args, **kwargs)
 
     def execute(self, query):
         """Execute an SQL statement.
