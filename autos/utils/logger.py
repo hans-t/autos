@@ -12,6 +12,7 @@ import functools
 import logging.handlers
 
 import autos.notification.slack as slack
+import autos.notification.email as email
 
 
 DEFAULT_LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -33,6 +34,32 @@ class SlackHookHandler(logging.Handler):
             username=self.username,
             channel=self.channel,
         )
+
+
+class EmailHandler(logging.Handler):
+    def __init__(
+        self,
+        send_from,
+        send_to,
+        subject,
+        username,
+        password,
+        **opts
+    ):
+        logging.Handler.__init__(self)
+        self.send = functools.partial(
+            email.send_email,
+            send_from=send_from,
+            send_to=send_to,
+            subject=subject,
+            username=username,
+            password=password,
+            **opts
+        )
+
+    def emit(self, record):
+        message = self.format(record)
+        self.send(text=message)
 
 
 def get_logger(name=None):
@@ -111,6 +138,24 @@ def get_slack_hook_handler(
     ):
 
     handler = SlackHookHandler(url=url, **opts)
+    handler.setLevel(level)
+    return handler
+
+
+def get_email_handler(
+        send_from,
+        username,
+        password,
+        level=DEFAULT_HANDLER_LEVEL,
+        **opts
+    ):
+
+    handler = EmailHandler(
+        send_from=send_from,
+        username=username,
+        password=password,
+        **opts
+    )
     handler.setLevel(level)
     return handler
 
