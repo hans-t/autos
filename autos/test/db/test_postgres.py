@@ -58,29 +58,38 @@ class TestPostgres(unittest.TestCase):
         self.mock_open(filename='test.csv', mode='w', encoding='utf-32', newline='')
 
     def test_execute(self):
-        query = 'SELECT * FROM public.test LIMIT 1'
-        self.postgres.execute(query)
+        query = 'SELECT * FROM public.test WHERE x = %s LIMIT 1'
+        self.postgres.execute(query, parameters=(3,))
         self.postgres.conn.__enter__.assert_called_once_with()
         self.mock_cursor.execute \
-            .assert_called_once_with(query)
+            .assert_called_once_with(query, (3,))
 
     def test_select(self):
         self.mock_cursor.description = [['id']]
 
         self.mock_cursor.fetchall.return_value = [[1], [2]]
-        rows = list(self.postgres.select('SELECT * FROM public.test LIMIT 2', arraysize=-1))
+        query1 = 'SELECT * FROM public.test LIMIT 2'
+        rows = list(self.postgres.select(query1, arraysize=-1))
         self.mock_cursor.fetchall.assert_called_once_with()
+        self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0], ['id'])
         self.assertEqual(rows[1].id, 1)
         self.assertEqual(rows[2].id, 2)
 
         self.mock_cursor.fetchmany.side_effect = [[[1], [2]], [[3]], []]
-        rows = list(self.postgres.select('SELECT * FROM public.test LIMIT 3', arraysize=2))
-        self.mock_cursor.fetchall.assert_called_once_with()
+        query2 = 'SELECT * FROM public.test LIMIT 3'
+        rows = list(self.postgres.select(query2, arraysize=2))
+        self.assertEqual(self.mock_cursor.fetchmany.call_count, 3)
+        self.assertEqual(len(rows), 4)
         self.assertEqual(rows[0], ['id'])
         self.assertEqual(rows[1].id, 1)
         self.assertEqual(rows[2].id, 2)
         self.assertEqual(rows[3].id, 3)
+
+        self.assertEqual(self.mock_cursor.execute.mock_calls, [
+            mock.call(query1, ()),
+            mock.call(query2, ()),
+        ])
 
     @mock.patch.object(postgres.Postgres, 'open_csv', autospec=True)
     def test_extract(self, mock_open_csv):
@@ -94,7 +103,6 @@ class TestPostgres(unittest.TestCase):
 
         copy_query = "COPY (SELECT * FROM public.test LIMIT 3) TO STDOUT WITH CSV HEADER NULL '' DELIMITER ';' ENCODING 'utf-16'"
         self.mock_cursor.copy_expert.assert_called_once_with(copy_query, mock_open_csv.return_value)
-
 
     @mock.patch.object(postgres.Postgres, 'open_csv', autospec=True)
     def test_dump_with_columns_none(self, mock_open_csv):

@@ -57,7 +57,7 @@ class Postgres:
         encoding = self.get_encoding(encoding)
         return open(filename, mode=mode, encoding=encoding, newline='')
 
-    def execute(self, query):
+    def execute(self, query, parameters=()):
         """Execute an SQL statement.
 
         :type query: string
@@ -65,9 +65,9 @@ class Postgres:
         """
 
         with self.conn, self.conn.cursor() as cursor:
-            cursor.execute(query)
+            cursor.execute(query, parameters)
 
-    def select(self, query, arraysize=-1):
+    def select(self, query, parameters=(), arraysize=-1):
         """Execute a SELECT statement.
 
         :type query: string
@@ -82,7 +82,7 @@ class Postgres:
         """
 
         with self.conn, self.conn.cursor() as cursor:
-            cursor.execute(query)
+            cursor.execute(query, parameters)
             if arraysize == -1:
                 rows = cursor.fetchall()
             else:
