@@ -1,11 +1,41 @@
-__all__ = ['log_exception', 'get_timed_rotating_logger']
+__all__ = [
+    'get_logger',
+    'log_exception',
+    'get_timed_rotating_logger',
+    'get_timed_rotating_file_handler',
+    'get_slack_hook_handler',
+    'set_root_logger',
+]
 
 import logging
 import functools
 import logging.handlers
 
+import autos.notification.slack as slack
 
-def get_logger(name):
+
+DEFAULT_LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+DEFAULT_HANDLER_LEVEL = 'NOTSET'
+
+
+class SlackHookHandler(logging.Handler):
+    def __init__(self, url, username=None, channel=None):
+        logging.Handler.__init__(self)
+        self.url = url
+        self.username = username
+        self.channel = channel
+        self.hook = slack.IncomingWebhook(url=url)
+
+    def emit(self, record):
+        message = self.format(record)
+        self.hook.send(
+            text=message,
+            username=self.username,
+            channel=self.channel,
+        )
+
+
+def get_logger(name=None):
     return logging.getLogger(name)
 
 
@@ -56,25 +86,46 @@ def get_timed_rotating_logger(
     return logger
 
 
-def add_timed_rotating_handler_to_root_logger(
+def get_timed_rotating_file_handler(
         filename,
-        level=logging.INFO,
+        level=DEFAULT_HANDLER_LEVEL,
         when='D',
         backup_count=7,
-        log_format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        **opts
     ):
 
-    get_logger("urllib3").setLevel(logging.WARNING)
-    get_logger("requests").setLevel(logging.WARNING)
-    get_logger("oauth2client.client").setLevel(logging.WARNING)
-    logging.basicConfig(
-        format=log_format,
-        level=level,
-        handlers=[
-            logging.handlers.TimedRotatingFileHandler(
-                filename=filename,
-                when=when,
-                backupCount=backup_count,
-            ),
-        ]
+    handler = logging.handlers.TimedRotatingFileHandler(
+        filename=filename,
+        when=when,
+        backupCount=backup_count,
+        **opts,
     )
+    handler.setLevel(level)
+    return handler
+
+
+def get_slack_hook_handler(
+        url,
+        level=DEFAULT_HANDLER_LEVEL,
+        **opts
+    ):
+
+    handler = SlackHookHandler(url=url, **opts)
+    handler.setLevel(level)
+    return handler
+
+
+def set_root_logger(
+        *handlers,
+        level=logging.INFO,
+        format=DEFAULT_LOG_FORMAT
+    ):
+
+    logging.basicConfig(
+        level=level,
+        format=format,
+        handlers=handlers,
+    )
+
+    return get_logger()
+
