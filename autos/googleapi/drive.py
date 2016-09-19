@@ -14,10 +14,11 @@ from apiclient.http import MediaFileUpload
 from apiclient.http import MediaIoBaseDownload
 
 from .service import Service
-from .errors import UploadError
-from .errors import ExportError
-from .errors import DownloadError
 from .errors import HttpError
+from .errors import ExportError
+from .errors import UploadError
+from .errors import DownloadError
+from .errors import CreateFolderError
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,23 @@ class Drive(Service):
             api_name='drive',
             api_version='v3',
         )
+
+    def create_folder(self, name, parents=()):
+        metadata = {
+            'name': name,
+            'parents': parents,
+            'mimeType': 'application/vnd.google-apps.folder',
+        }
+
+        try:
+            file = self.service.files().create(
+                body=metadata,
+                fields='id',
+            ).execute()
+        except HttpError as e:
+            logger.exception('CREATE_FOLDER_ERROR')
+            raise CreateFolderError from e
+        return file.get('id')
 
     def upload(self, src, name=None, parents=(), mime_type=None):
         """Uploads a file to Google Drive and convert it to a Google document.

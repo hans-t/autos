@@ -1,6 +1,10 @@
 from apiclient.errors import HttpError
 
 
+class CreateFolderError(Exception):
+    pass
+
+
 class UploadError(Exception):
     pass
 
