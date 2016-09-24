@@ -90,3 +90,5 @@ ENV/
 
 # Dev
 credentials/
+.DS_Store
+tmp/
