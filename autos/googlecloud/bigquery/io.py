@@ -205,6 +205,67 @@ class BigQueryIO:
         job.schema = make_bq_schema(schema)
         execute(job)
 
+    def copy_json_from(
+        self,
+        dataset_name,
+        table_name,
+        paths,
+        write_disposition='WRITE_EMPTY',
+        create_disposition='CREATE_NEVER',
+        max_bad_records=0,
+        schema=(),
+    ):
+        """Copy JSON files to existing BigQuery table.
+
+        See:
+        https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load
+        http://gcloud-python.readthedocs.io/en/latest/bigquery-job.html#gcloud.bigquery.job.LoadTableFromStorageJob
+
+        :type dataset_name: str
+        :param dataset_name: Dataset name in which the table lives in.
+
+        :type name: str
+        :param name: Table name.
+
+        :type paths: list
+        :param paths: List of CSV file paths to copy.
+
+        :type write_disposition: str
+        :param write_disposition: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.writeDisposition
+
+        :type create_disposition: str
+        :param create_disposition: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.createDisposition
+
+        :type max_bad_records: int
+        :param max_bad_records: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.maxBadRecords
+
+        :type schema: list
+        :param schema: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.skipLeadingRows
+        """
+
+        if create_disposition == 'CREATE_IF_NEEDED' and not schema:
+            raise LoadConfigurationError(
+                'Table does not exist and will be created because you set ' \
+                'create_disposition=CREATE_IF_NEEDED, ' \
+                'but schema is empty. Please provide schema.'
+            )
+
+        job_name = random_string()
+        destination_table = self.get_table(dataset_name, table_name)
+        source_uris = self.import_bucket.upload_files(paths)
+        job = self.bq_client.load_table_from_storage(
+            job_name,
+            destination_table,
+            *source_uris,
+        )
+        job.source_format = 'NEWLINE_DELIMITED_JSON'
+        job.encoding = DEFAULT_ENCODING
+        job.write_disposition = write_disposition
+        job.create_disposition = create_disposition
+        job.max_bad_records = max_bad_records
+        job.schema = make_bq_schema(schema)
+        execute(job)
+
     def execute_query(self, query, priority='BATCH'):
         """Execute BigQuery query.
 

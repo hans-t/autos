@@ -3,8 +3,8 @@ import copy
 
 class JobError(Exception):
     def __init__(self, job):
-        super().__init__('{reason}: {message}'.format(**job.error_result))
-        self.errors = copy.deepcopy(job.errors)
+        message = str(job.errors)
+        super().__init__(message)
 
 
 class CopyError(Exception):
