@@ -2,6 +2,14 @@ __all__ = ['merge_files', 'remove_file', 'remove_files']
 
 import os
 import glob
+import zipfile
+
+try:
+    import zlib
+except:
+    DEFAULT_ZIP_MODE = zipfile.ZIP_STORED
+else:
+    DEFAULT_ZIP_MODE = zipfile.ZIP_DEFLATED
 
 
 def merge_files(dst, src_glob, nbytes=1 << 30):
@@ -35,6 +43,19 @@ def remove_file(path):
         pass
 
 
-def remove_files(*paths):
+def remove_files(glob_pattern='', paths=()):
+    if glob_pattern:
+        paths = glob.iglob(glob_pattern)
+
     for path in paths:
         remove_file(path)
+
+
+def zip_files(dest, glob_pattern='', paths=(), mode='w', compression=DEFAULT_ZIP_MODE):
+    if glob_pattern:
+        paths = glob.iglob(glob_pattern)
+
+    with zipfile.ZipFile(dest, mode=mode, compression=compression) as zipper:
+        for path in paths:
+            filename = os.path.split(path)[1]
+            zipper.write(path, arcname=filename)
