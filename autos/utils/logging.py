@@ -82,7 +82,7 @@ def log_exception(logger):
 def get_timed_rotating_logger(
         name,
         filename,
-        level=logging.INFO,
+        level='INFO',
         when='D',
         backup_count=7,
         log_format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -162,7 +162,7 @@ def get_email_handler(
 
 def set_root_logger(
         *handlers,
-        level=logging.INFO,
+        level='INFO',
         format=DEFAULT_LOG_FORMAT
     ):
 
