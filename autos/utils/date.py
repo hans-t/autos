@@ -32,3 +32,7 @@ def get_past_date(days=0, weeks=0):
     """
 
     return (datetime.date.today() - datetime.timedelta(days=days, weeks=weeks))
+
+
+def parse_date(date_string, format='%Y-%m-%d'):
+    return datetime.datetime.strptime(date_string, format).date()

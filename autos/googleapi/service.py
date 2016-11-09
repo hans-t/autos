@@ -50,3 +50,4 @@ class Service:
         credentials = self._get_credentials(credentials_file, client_secrets_file)
         http = credentials.authorize(httplib2.Http())
         self._service = build(self.api_name, self.api_version, http=http)
+        return self

@@ -67,14 +67,14 @@ class Drive(Service):
         }
 
         try:
-            file = self.service.files().create(
+            resp = self.service.files().create(
                 body=metadata,
                 fields='id',
             ).execute()
         except HttpError as e:
             logger.exception('CREATE_FOLDER_ERROR')
             raise CreateFolderError from e
-        return file.get('id')
+        return resp.get('id')
 
     def upload(self, src, name=None, parents=(), mime_type=None):
         """Uploads a file to Google Drive and convert it to a Google document.
@@ -109,7 +109,7 @@ class Drive(Service):
         media_body = MediaFileUpload(filename=src)
 
         try:
-            file = self.service.files().create(
+            resp = self.service.files().create(
                 body=metadata,
                 media_body=media_body,
                 fields='id',
@@ -117,7 +117,20 @@ class Drive(Service):
         except HttpError as e:
             logger.exception('UPLOAD_ERROR')
             raise UploadError from e
-        return file.get('id')
+        return resp.get('id')
+
+    def upload_new_revision(self, file_id, src, keep_revision=False):
+        media_body = MediaFileUpload(filename=src)
+        try:
+            resp = self.service.files().update(
+                fileId=file_id,
+                media_body=media_body,
+                keepRevisionForever=keep_revision,
+            ).execute()
+        except HttpError as e:
+            logger.exception('UPLOAD_ERROR')
+            raise UploadError from e
+        return file_id
 
     def import_csv_as_gsheet(self, src, name=None, parents=()):
         """Uploads a CSV file to Google drive as Google Sheet.

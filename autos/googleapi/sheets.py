@@ -3,6 +3,7 @@ import uuid
 import logging
 import functools
 
+from autos.utils.csv import write_csv
 from .service import Service
 from .errors import SheetNotFound
 from .errors import ExecutionError
@@ -246,3 +247,28 @@ class Sheets(Service):
             range=range,
         ).execute()
         return response.get('values', [])
+
+    def clear_values(self, sheet_name, batch=False):
+        """Clear a sheet of all values while preserving formats.
+
+        :type sheet_name: str
+        :param sheet_name: Sheet name.
+
+        :type batch: bool
+        :param batch: If true, returns request for batching, else execute immediately.
+        """
+
+        sheet_id = self.get_sheet_id(sheet_name)
+        request = {
+            'updateCells': {
+                'range': {
+                    'sheetId': sheet_id,
+                },
+                'fields': 'userEnteredValue',
+            }
+        }
+        return self.execute(request, batch)
+
+    def extract(self, path, range):
+        rows = self.get_values(range=range)
+        write_csv(path, rows=rows)

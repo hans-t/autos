@@ -27,3 +27,5 @@ class TableNotFound(Exception):
     pass
 
 
+class InvalidTableReference(Exception):
+    pass

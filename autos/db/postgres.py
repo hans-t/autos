@@ -10,6 +10,7 @@ from string import ascii_lowercase
 import psycopg2
 
 import autos.utils.file as file
+import autos.constants as constants
 
 
 logger = logging.getLogger(__name__)
@@ -23,15 +24,34 @@ class Postgres:
         return cls(conn=psycopg2.connect(*args, **kwargs))
 
     def __init__(self, conn):
-        self.encoding = 'utf-8'
-        self.delimiter = '\t'
+        self.encoding = constants.DEFAULT_ENCODING
+        self.delimiter = constants.DEFAULT_DELIMITER
         self.conn = conn
+        self._search_path = None
+
+    @property
+    def search_path(self):
+        return self._search_path
+
+    @search_path.setter
+    def search_path(self, value):
+        default = ('"$user"', 'public')
+        if value:
+            search_path = (value,) + default
+        else:
+            search_path = tuple(default)
+            value = None
+
+        param = ','.join(search_path)
+        sql = 'SET search_path TO {};'.format(param)
+        self.execute(sql)
+        self._search_path = value
 
     def get_encoding(self, encoding):
-        """Get encoding, use default if None.
+        """Returns encoding argument, use default if None.
 
         :type encoding: str
-        :param encoding: File encoding.
+        :param encoding: encoding argument.
         """
 
         if encoding is None:
@@ -40,16 +60,52 @@ class Postgres:
             return encoding
 
     def get_delimiter(self, delimiter):
-        """Get delimiter, use default if None.
+        """Returns delimiter argument, use default if None.
 
         :type delimiter: str
-        :param delimiter: File delimiter.
+        :param delimiter: delimiter argument.
         """
 
         if delimiter is None:
             return self.delimiter
         else:
             return delimiter
+
+    def get_columns(self, columns):
+        """Returns columns argument, use default if None.
+
+        :type columns: str
+        :param columns: columns argument.
+        """
+
+        if columns is None:
+            return ''
+        else:
+            return '({})'.format(','.join(columns))
+
+    def get_header(self, header):
+        """Returns header argument, use default if None.
+
+        :type header: str
+        :param header: header argument.
+        """
+
+        if header:
+            return 'TRUE'
+        else:
+            return 'FALSE'
+
+    def get_null(self, null):
+        """Returns null argument, use default if None.
+
+        :type null: str
+        :param null: null argument.
+        """
+
+        if null is None:
+            return "''"
+        else:
+            return null
 
     def open_csv(self, filename, mode='r', encoding=None):
         """Open a CSV file."""
@@ -67,8 +123,11 @@ class Postgres:
         with self.conn, self.conn.cursor() as cursor:
             cursor.execute(query, parameters)
 
-    def select(self, query, parameters=(), arraysize=-1):
+    def select(self, query, parameters=(), arraysize=-1, with_header=True):
         """Execute a SELECT statement.
+
+        Always use %% for % literal. See:
+        http://stackoverflow.com/questions/14054920/psycopg2-indexerror-tuple-index-out-of-range-error-when-using-like-operat
 
         :type query: string
         :param query: SQL query string.
@@ -89,9 +148,10 @@ class Postgres:
                 cursor.arraysize = arraysize
                 rows = itertools.chain.from_iterable(iter(cursor.fetchmany, []))
 
-            header = [desc[0] for desc in cursor.description]
+            header = tuple(desc[0] for desc in cursor.description)
             Row = collections.namedtuple('Row', header)
-            yield header
+            if with_header:
+                yield header
             yield from map(Row._make, rows)
 
     def to_file(self, rows, file, delimiter=None):
@@ -139,11 +199,20 @@ class Postgres:
         self.to_file(rows, file)
         return file.name
 
-    def extract(self, filename, query, delimiter=None, encoding=None):
+    def extract(
+        self,
+        filename,
+        query,
+        delimiter=None,
+        encoding=None,
+        header=True,
+        null=None,
+        use_copy=True,
+    ):
         """Extract the result of a SELECT query into a CSV file.
 
         :type filename: str
-        :param filename: Query result CSV file name.
+        :param filename: Query result CSV file path.
 
         :type query: str
         :param query: SELECT query to be executed.
@@ -153,18 +222,45 @@ class Postgres:
         """
 
         delimiter = self.get_delimiter(delimiter)
-        encoding = self.get_encoding(encoding)
-        copy_sql = "COPY ({query}) TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}' ENCODING '{encoding}'"
-        sql = copy_sql.format(query=query, delimiter=delimiter, encoding=encoding)
-        file = self.open_csv(filename, mode='w')
-        with file, self.conn, self.conn.cursor() as cursor:
-            cursor.copy_expert(sql, file)
+        header = self.get_header(header)
+        file = self.open_csv(filename, mode='w', encoding=encoding)
+        if use_copy:
+            null = self.get_null(null)
+            copy_sql_template = "COPY ({query}) " \
+                                "TO STDOUT WITH (" \
+                                "FORMAT CSV," \
+                                "HEADER {header}," \
+                                "NULL {null}," \
+                                "DELIMITER '{delimiter}'," \
+                                "ENCODING '{encoding}'" \
+                                ")"
+            copy_sql = copy_sql_template.format(
+                query=query,
+                header=header,
+                null=null,
+                delimiter=delimiter,
+                encoding=file.encoding,
+            )
+            with file, self.conn, self.conn.cursor() as cursor:
+                cursor.copy_expert(copy_sql, file)
+        else:
+            rows = self.select(query=query, with_header=header)
+            self.to_file(rows, file=file, delimiter=delimiter)
 
-    def dump(self, filename, table_name, columns=None, delimiter=None, encoding=None):
+    def dump(
+        self,
+        filename,
+        table_name,
+        columns=None,
+        delimiter=None,
+        encoding=None,
+        header=True,
+        null=None,
+    ):
         """Dump a table into a file.
 
         :type filename: str
-        :param filename: Query result CSV file name.
+        :param filename: Query result CSV file path.
 
         :type table_name: str
         :param table_name: Table name to be dumped.
@@ -176,19 +272,30 @@ class Postgres:
         :param delimiter: CSV delimiter.
         """
 
+        file = self.open_csv(filename, mode='w', encoding=encoding)
+        copy_sql_template = "COPY {table_name} {columns} " \
+                            "TO STDOUT WITH (" \
+                            "FORMAT CSV," \
+                            "HEADER {header}," \
+                            "NULL {null}," \
+                            "DELIMITER '{delimiter}'," \
+                            "ENCODING '{encoding}'" \
+                            ")"
+
         delimiter = self.get_delimiter(delimiter)
-        encoding = self.get_encoding(encoding)
-        if columns is None:
-            columns = ''
-        else:
-            columns = '({})'.format(','.join(columns))
-
-        copy_sql = "COPY {table_name} {columns} TO STDOUT WITH CSV HEADER NULL '' DELIMITER '{delimiter}' ENCODING '{encoding}'"
-        sql = copy_sql.format(table_name=table_name, columns=columns, delimiter=delimiter, encoding=encoding)
-
-        file = self.open_csv(filename, mode='w')
+        columns = self.get_columns(columns)
+        header = self.get_header(header)
+        null = self.get_null(null)
+        copy_sql = copy_sql_template.format(
+            table_name=table_name,
+            columns=columns,
+            header=header,
+            null=null,
+            delimiter=delimiter,
+            encoding=file.encoding,
+        )
         with file, self.conn, self.conn.cursor() as cursor:
-            cursor.copy_expert(sql, file)
+            cursor.copy_expert(copy_sql, file)
 
     def load_from_file(
         self,
@@ -196,8 +303,8 @@ class Postgres:
         table_name,
         columns=None,
         header=True,
-        null="''",
-        delimiter='\t',
+        null=None,
+        delimiter=None,
         truncate_table=False,
     ):
         """Load data from a file into a table using copy_expert(). See:
@@ -226,6 +333,9 @@ class Postgres:
         """
 
         delimiter = self.get_delimiter(delimiter)
+        columns = self.get_columns(columns)
+        header = self.get_header(header)
+        null = self.get_null(null)
         copy_sql_template = "COPY {table_name} {columns} " \
                             "FROM STDIN WITH (" \
                             "FORMAT CSV," \
@@ -235,8 +345,6 @@ class Postgres:
                             "ENCODING '{encoding}'" \
                             ")"
 
-        header = 'TRUE' if header else 'FALSE'
-        columns = '({})'.format(','.join(columns)) if columns is not None else ''
         copy_sql = copy_sql_template.format(
             table_name=table_name,
             columns=columns,
@@ -328,3 +436,15 @@ class Postgres:
 
         sql = 'TRUNCATE TABLE {}'.format(table_name)
         self.execute(sql)
+
+    def dblink_bq(self, bqio, dest, query='', source='', dir=None, **export_kwargs):
+        if dir is None:
+            dir = tempfile.gettempdir()
+
+        if query:
+            paths = bqio.copy_csv_to(query, dir, **export_kwargs)
+        elif source:
+            paths = bqio.dump(source, dir, **export_kwargs)
+        else:
+            raise ValueError('Either query or source must be supplied.')
+        self.load_from_filenames(table_name=dest, paths=paths)

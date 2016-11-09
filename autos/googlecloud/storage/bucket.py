@@ -1,6 +1,6 @@
 import os.path
 
-from gcloud import storage
+from google.cloud import storage
 
 
 

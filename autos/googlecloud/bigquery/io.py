@@ -1,22 +1,39 @@
+import re
+import time
 import logging
 
-from gcloud import bigquery
+from google.cloud import bigquery
 
-from .jobs import execute
+import autos.constants as constants
+from autos.utils.hash import hash_str
+
+from . import errors
 from .utils import random_string
-from .errors import MissingSchema
-from .errors import TableNotFound
-from .errors import DatasetNotFound
-from .errors import LoadConfigurationError
-
 from ..storage.bucket import Bucket
 
 
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_DELIMITER = '\t'
-DEFAULT_ENCODING = 'UTF-8'
+DEFAULT_DELIMITER = constants.DEFAULT_DELIMITER
+DEFAULT_ENCODING = constants.DEFAULT_ENCODING
+
+
+def execute(job):
+    '''Begin and poll BigQuery job.'''
+
+    job.begin()
+    poll(job)
+
+
+def poll(job):
+    '''Poll BigQuery job.'''
+
+    while job.state != 'DONE':
+        job.reload()
+        time.sleep(1)
+    if job.error_result:
+        raise errors.JobError(job)
 
 
 def make_bq_schema(schema):
@@ -77,6 +94,14 @@ class BigQueryIO:
             project=project,
         )
 
+    def parse_table_reference(self, table_reference):
+        pattern = r'^(?:([a-z0-9\-]*):)?(\w+)\.(\w+)$'
+        match = re.fullmatch(pattern, table_reference)
+        try:
+            return match.groups(default=self.project)
+        except AttributeError:
+            raise errors.InvalidTableReference(table_reference)
+
     def get_dataset(self, name, create=False, raises=False):
         """Get dataset instance.
 
@@ -85,7 +110,7 @@ class BigQueryIO:
 
         :type create: boolean
         :param create: If true, dataset will be created if it does not exist,
-                       else will throw DatasetNotFound error.
+                       else will throw errors.DatasetNotFound error.
 
         :rtype: gcloud.bigquery.dataset.Dataset
         :returns: Bigquery dataset instance.
@@ -97,7 +122,7 @@ class BigQueryIO:
         elif create:
             dataset.create()
         elif raises:
-            raise DatasetNotFound('{}:{}'.format(self.project, name))
+            raise errors.DatasetNotFound('{}:{}'.format(self.project, name))
         return dataset
 
     def get_table(self, dataset_name, name, schema=(), create=False, raises=False):
@@ -126,9 +151,9 @@ class BigQueryIO:
                 table.schema = make_bq_schema(schema)
                 table.create()
             else:
-                raise MissingSchema('You need to provide schema when creating table.')
+                raise errors.MissingSchema('You need to provide schema when creating table.')
         elif raises:
-            raise TableNotFound('{}:{}.{}'.format(self.project, dataset_name, name))
+            raise errors.TableNotFound('{}:{}.{}'.format(self.project, dataset_name, name))
         return table
 
     def copy_csv_from(
@@ -180,7 +205,7 @@ class BigQueryIO:
         """
 
         if create_disposition == 'CREATE_IF_NEEDED' and not schema:
-            raise LoadConfigurationError(
+            raise errors.LoadConfigurationError(
                 'Table does not exist and will be created because you set ' \
                 'create_disposition=CREATE_IF_NEEDED, ' \
                 'but schema is empty. Please provide schema.'
@@ -244,7 +269,7 @@ class BigQueryIO:
         """
 
         if create_disposition == 'CREATE_IF_NEEDED' and not schema:
-            raise LoadConfigurationError(
+            raise errors.LoadConfigurationError(
                 'Table does not exist and will be created because you set ' \
                 'create_disposition=CREATE_IF_NEEDED, ' \
                 'but schema is empty. Please provide schema.'
@@ -266,7 +291,7 @@ class BigQueryIO:
         job.schema = make_bq_schema(schema)
         execute(job)
 
-    def execute_query(self, query, priority='BATCH'):
+    def execute_query(self, query, priority='BATCH', use_legacy_sql=True):
         """Execute BigQuery query.
 
         :type query: str
@@ -275,6 +300,9 @@ class BigQueryIO:
         :type priority: str
         :param priority: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.query.priority
 
+        :type use_legacy_sql: bool
+        :param use_legacy_sql: See: https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.query.useLegacySql
+
         :rtype: ``gcloud.bigquery.table.Table``
         :returns: Table instance containing query result.
         """
@@ -282,7 +310,7 @@ class BigQueryIO:
         job_name = random_string()
         job = self.bq_client.run_async_query(job_name, query=query)
         job.priority = priority
-        job.use_legacy_sql = True
+        job.use_legacy_sql = use_legacy_sql
         execute(job)
         return job.destination
 
@@ -318,6 +346,7 @@ class BigQueryIO:
         delimiter=DEFAULT_DELIMITER,
         compression='NONE',
         priority='BATCH',
+        use_legacy_sql=True,
     ):
         """Copy BigQuery query result to files. This method is designed to imitate
         the behaviour of 'COPY TO' command of PostgreSQL.
@@ -338,7 +367,7 @@ class BigQueryIO:
         :returns: A list of query result files.
         """
 
-        table = self.execute_query(query, priority=priority)
+        table = self.execute_query(query, priority=priority, use_legacy_sql=use_legacy_sql)
         prefix = table.name
         self.export_table_as_csv(
             table,
@@ -346,4 +375,11 @@ class BigQueryIO:
             compression=compression,
             delimiter=delimiter,
         )
+        yield from self.export_bucket.download_files(dir, prefix=prefix)
+
+    def dump(self, source, dir, **export_kwargs):
+        _, dataset_name, table_name = self.parse_table_reference(source)
+        table = self.get_table(dataset_name, table_name)
+        prefix = hash_str(table.name)
+        self.export_table_as_csv(table, prefix=prefix, **export_kwargs)
         yield from self.export_bucket.download_files(dir, prefix=prefix)

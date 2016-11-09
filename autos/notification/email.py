@@ -19,8 +19,8 @@ def send_email(
     port=587,
     username='',
     password='',
-    is_tls=True,
-    is_html=True,
+    use_tls=True,
+    use_html=True,
 ):
     """Send e-mail with or without attachment(s).
 
@@ -51,11 +51,11 @@ def send_email(
     :type password: string
     :param password: Login password.
 
-    :type is_tls: bool
-    :param is_tls: If true, TLS is used. Default is False.
+    :type use_tls: bool
+    :param use_tls: If true, TLS is used. Default is False.
 
-    :type is_html: bool
-    :param is_html: If true, text is interpreted as HTML (default), otherwise plaintext.
+    :type use_html: bool
+    :param use_html: If true, text is interpreted as HTML (default), otherwise plaintext.
     """
 
     if isinstance(send_to, str):
@@ -67,7 +67,7 @@ def send_email(
     message['Date'] = formatdate(localtime=True)
     message['Subject'] = subject
 
-    subtype = 'html' if is_html else 'plain'
+    subtype = 'html' if use_html else 'plain'
     message.attach(MIMEText(text, subtype, 'utf-8'))
 
     for path in paths:
@@ -86,7 +86,7 @@ def send_email(
         message.attach(part)
 
     with smtplib.SMTP(server, port) as smtp:
-        if is_tls:
+        if use_tls:
             smtp.starttls()
         smtp.login(username,password)
         smtp.sendmail(send_from, send_to, msg=message.as_string())
