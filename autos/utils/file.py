@@ -1,4 +1,4 @@
-__all__ = ['merge_files', 'remove_file', 'remove_files']
+__all__ = ['remove_file', 'remove_files', 'zip_files']
 
 import os
 import glob

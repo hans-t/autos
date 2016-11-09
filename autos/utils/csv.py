@@ -1,4 +1,4 @@
-__all__ = ['itertuples', 'fwrite_csv', 'write_csv']
+__all__ = ['fread_csv', 'read_csv', 'fwrite_csv', 'write_csv']
 
 
 import csv

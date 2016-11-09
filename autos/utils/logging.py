@@ -1,9 +1,12 @@
 __all__ = [
+    'SlackHookHandler',
+    'EmailHandler',
     'get_logger',
     'log_exception',
     'get_timed_rotating_logger',
     'get_timed_rotating_file_handler',
     'get_slack_hook_handler',
+    'get_email_handler',
     'set_root_logger',
 ]
 

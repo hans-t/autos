@@ -1,4 +1,4 @@
-__all__ = ['date_range', 'get_past_date']
+__all__ = ['date_range', 'get_past_date', 'parse_date']
 
 import datetime
 
