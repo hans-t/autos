@@ -6,26 +6,11 @@ import collections
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 
-from .utils import random_delay
-from .utils import random_string
-from .errors import DatasetNotFound
-from .errors import InvalidTableReference
+from . import utils
+from . import errors
 
 
 logger = logging.getLogger(__name__)
-
-
-def format_error(error):
-    return json.dumps(error, indent=2, ensure_ascii=False, sort_keys=True)
-
-
-def handle_error(job):
-    error_result = job.error_result
-    error_result['job_name'] = job.name
-    logger.warning('Error Result: {}'.format(format_error(error_result)))
-
-    errors = [{'job_name': job.name}] + job.errors
-    logger.debug('Errors: {}'.format(format_error(errors)))
 
 
 class Jobs:
@@ -48,7 +33,7 @@ class Jobs:
         try:
             return match.groups(default=self.project)
         except AttributeError:
-            raise InvalidTableReference(table_reference)
+            raise errors.InvalidTableReference(table_reference)
 
     def get_client(self, *, json_credentials_path=None, project=None):
         if project is None:
@@ -79,7 +64,7 @@ class Jobs:
         try:
             dataset.reload()
         except NotFound:
-            raise DatasetNotFound(dataset_name)
+            raise errors.DatasetNotFound(dataset_name)
         table = dataset.table(name=table_name)
         return table
 
@@ -100,17 +85,17 @@ class Jobs:
             delay_mean = 3/len(queue)
             job = queue.popleft()
             job.reload()
-            random_delay(mean=delay_mean)
+            utils.random_delay(mean=delay_mean)
             if job.state != 'DONE':
                 queue.append(job)
             else:
                 if job.error_result:
-                    handle_error(job)
+                    raise errors.JobError(job)
 
 
 class QueryJobs(Jobs):
     def add(self, id, query, destination, **opts):
-        job_name = '{}_{}'.format(id, random_string())
+        job_name = '{}_{}'.format(id, utils.random_string())
         job = self.get_client().run_async_query(job_name=job_name, query=query)
 
         if destination is not None:
@@ -159,7 +144,7 @@ class CopyJobs(Jobs):
         sources,
         **opts
     ):
-        job_name = '{}_{}'.format(id, random_string())
+        job_name = '{}_{}'.format(id, utils.random_string())
         destination_table = self.get_table(destination)
         source_tables = (self.get_table(source) for source in sources)
         job = self.get_client().copy_table(job_name, destination_table, *source_tables)
