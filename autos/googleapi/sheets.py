@@ -214,7 +214,7 @@ class Sheets(Service):
             self.reload()
             return response
 
-    def update_values(self, range, values):
+    def update_values(self, range, values, as_is=True):
         """Updates rows in range with the given values.
 
         :type range: str
@@ -224,11 +224,12 @@ class Sheets(Service):
         :param values: Rows within the range.
         """
 
+        value_input_option = 'RAW' if as_is else 'USER_ENTERED'
         body = { 'range': range, 'values': values }
         return self.spreadsheets.values().update(
             spreadsheetId=self.spreadsheet_id,
             range=range,
-            valueInputOption='RAW',
+            valueInputOption=value_input_option,
             body=body,
         ).execute()
 
