@@ -1,4 +1,4 @@
-__all__ = ['date_range', 'get_past_date']
+__all__ = ['date_range', 'get_past_date', 'parse_date']
 
 import datetime
 
@@ -32,3 +32,7 @@ def get_past_date(days=0, weeks=0):
     """
 
     return (datetime.date.today() - datetime.timedelta(days=days, weeks=weeks))
+
+
+def parse_date(date_string, format='%Y-%m-%d'):
+    return datetime.datetime.strptime(date_string, format).date()

@@ -87,3 +87,8 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# Dev
+credentials/
+.DS_Store
+tmp/
