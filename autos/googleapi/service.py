@@ -1,15 +1,17 @@
-import httplib2
-from apiclient.discovery import build
-from oauth2client import tools
-from oauth2client.file import Storage
-from oauth2client.client import flow_from_clientsecrets
+import pickle
+import os.path
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+
+# Follow authentication steps here: https://developers.google.com/drive/api/v3/quickstart/python
 
 from .errors import ServiceNotInitialized
 
 
 class Service:
-    def __init__(self, scope, api_name, api_version):
-        self.scope = scope
+    def __init__(self, scopes, api_name, api_version):
+        self.scopes = scopes
         self.api_name = api_name
         self.api_version = api_version
         self._service = None
@@ -30,11 +32,26 @@ class Service:
         :param client_secrets_file: Path to client secrets file.
         """
 
-        storage = Storage(credentials_file)
-        credentials = storage.get()
-        if credentials is None or credentials.invalid:
-            flow = flow_from_clientsecrets(client_secrets_file, scope=self.scope)
-            credentials = tools.run_flow(flow, storage, tools.argparser.parse_args([]))
+        credentials = None
+
+        # The credentials_file stores the user's access and refresh tokens, and is
+        # created automatically when the authorization flow completes for the first
+        # time.
+        if os.path.exists(credentials_file):
+            with open(credentials_file, 'rb') as token:
+                credentials = pickle.load(token)
+
+        # If there are no (valid) credentials available, let the user log in.
+        if not credentials or not credentials.valid:
+            if credentials and credentials.expired and credentials.refresh_token:
+                credentials.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(client_secrets_file, self.scopes)
+                credentials = flow.run_local_server(port=0)
+
+            # Save the credentials for the next run
+            with open(credentials_file, 'wb') as token:
+                pickle.dump(credentials, token)
         return credentials
 
     def init_service(self, credentials_file, client_secrets_file):
@@ -48,6 +65,5 @@ class Service:
         """
 
         credentials = self._get_credentials(credentials_file, client_secrets_file)
-        http = credentials.authorize(httplib2.Http())
-        self._service = build(self.api_name, self.api_version, http=http)
+        self._service = build(self.api_name, self.api_version, credentials=credentials)
         return self

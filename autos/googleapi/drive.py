@@ -10,8 +10,8 @@ import os
 import time
 import logging
 
-from apiclient.http import MediaFileUpload
-from apiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaIoBaseDownload
 
 from .service import Service
 from .errors import HttpError
@@ -51,10 +51,10 @@ def incremental_download(fp, request):
 class Drive(Service):
     def __init__(
         self,
-        scope='https://www.googleapis.com/auth/drive',
+        scopes=['https://www.googleapis.com/auth/drive'],
     ):
         super().__init__(
-            scope=scope,
+            scopes=scopes,
             api_name='drive',
             api_version='v3',
         )
@@ -76,7 +76,7 @@ class Drive(Service):
             raise CreateFolderError from e
         return resp.get('id')
 
-    def upload(self, src, name=None, parents=(), mime_type=None):
+    def upload(self, src, name=None, parents=(), mime_type=None, resumable=True, chunksize=4*1024*1024):
         """Uploads a file to Google Drive and convert it to a Google document.
 
         Google Drive documentations:
@@ -86,14 +86,24 @@ class Drive(Service):
         :type src: string
         :param src: Source path to be imported.
 
-        :type mime_type: string
-        :param mime_type: MIME type of the Google document.
-
         :type name: string
         :param name: File name on Google Drive, default to the source file name.
 
         :type parents: list
         :param parents: List of Google Drive parent folder IDs.
+
+        :type mime_type: string
+        :param mime_type: MIME type of the Google document.
+
+        :type resumable: bool
+        :param resumable: True if this is a resumable upload. False means upload in a single request.
+
+        :type chunksize: int
+        :param chunksize: File will be uploaded in chunks of this many bytes. Only
+                          used if resumable=True. Pass in a value of -1 if the file is to be
+                          uploaded in a single chunk. Note that Google App Engine has a 5MB limit
+                          on request size, so you should never set your chunksize larger than 5MB,
+                          or to -1.
 
         :rtype: string
         :returns: Uploaded file ID.
@@ -106,7 +116,11 @@ class Drive(Service):
             'parents': parents,
             'mimeType': mime_type,
         }
-        media_body = MediaFileUpload(filename=src)
+        media_body = MediaFileUpload(
+            filename=src,
+            chunksize=chunksize,
+            resumable=resumable,
+        )
 
         try:
             resp = self.service.files().create(
