@@ -31,10 +31,10 @@ class Sheets(Service):
 
     def __init__(
         self,
-        scope='https://www.googleapis.com/auth/drive',
+        scopes=['https://www.googleapis.com/auth/drive'],
     ):
         super().__init__(
-            scope=scope,
+            scopes=scopes,
             api_name='sheets',
             api_version='v4',
         )

@@ -11,7 +11,7 @@ import autos.googleapi.errors as errors
 logging.getLogger('autos.googleapi.sheets').setLevel(logging.CRITICAL)
 
 
-class TestDrive(unittest.TestCase):
+class TestSheets(unittest.TestCase):
     def setUp(self):
         self.sheets = sheets.Sheets()
 

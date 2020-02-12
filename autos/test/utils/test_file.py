@@ -29,7 +29,7 @@ class TestRemoveFiles(unittest.TestCase):
 
     def test_removes_files(self):
         paths = ['foo.jpg', 'bar.gif', 'wipe.sh']
-        file.remove_files(*paths)
+        file.remove_files(paths=paths)
         expected_calls = list(map(mock.call, paths))
         actual_calls = self.mock_remove_file.mock_calls
         self.assertEqual(actual_calls, expected_calls)

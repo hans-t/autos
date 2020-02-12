@@ -8,7 +8,7 @@ import autos.googleapi.service as service
 class TestService(unittest.TestCase):
     def setUp(self):
         self.service = service.Service(
-            scope='scope',
+            scopes=['scope'],
             api_name='api_name',
             api_version='api_version',
         )

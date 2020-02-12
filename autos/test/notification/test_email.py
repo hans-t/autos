@@ -22,7 +22,7 @@ class TestSendEmail(unittest.TestCase):
             send_to='you@mars.com',
             subject='welcome to mars',
             text=text,
-            is_html=True,
+            use_html=True,
         )
         mock_MIMEText.assert_called_once_with(text, 'html', 'utf-8')
 
@@ -34,7 +34,7 @@ class TestSendEmail(unittest.TestCase):
             send_to='you@mars.com',
             subject='welcome to mars',
             text=text,
-            is_html=False,
+            use_html=False,
         )
         mock_MIMEText.assert_called_once_with(text, 'plain', 'utf-8')
 
@@ -47,7 +47,7 @@ class TestSendEmail(unittest.TestCase):
                 send_to='you@mars.com',
                 subject='welcome to mars',
                 text='<i>hello mars!</i>',
-                is_html=False,
+                use_html=False,
                 paths=['non_existent.jpg'],
             )
 
@@ -57,8 +57,8 @@ class TestSendEmail(unittest.TestCase):
             send_to='you@mars.com',
             subject='welcome to mars',
             text='<i>hello mars!</i>',
-            is_html=False,
-            is_tls=False,
+            use_html=False,
+            use_tls=False,
         )
         self.assertFalse(
             self.mock_smtplib \
@@ -76,8 +76,8 @@ class TestSendEmail(unittest.TestCase):
             send_to='you@mars.com',
             subject='welcome to mars',
             text='<i>hello mars!</i>',
-            is_html=False,
-            is_tls=True,
+            use_html=False,
+            use_tls=True,
         )
         self.mock_smtplib \
             .SMTP \
