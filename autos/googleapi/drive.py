@@ -67,14 +67,13 @@ class Drive(Service):
         }
 
         try:
-            resp = self.service.files().create(
+            return self.service.files().create(
                 body=metadata,
                 fields='id',
             ).execute()
         except HttpError as e:
             logger.exception('CREATE_FOLDER_ERROR')
             raise CreateFolderError from e
-        return resp.get('id')
 
     def upload(self, src, name=None, parents=(), mime_type=None, resumable=True, chunksize=4*1024*1024):
         """Uploads a file to Google Drive and convert it to a Google document.
@@ -123,7 +122,7 @@ class Drive(Service):
         )
 
         try:
-            resp = self.service.files().create(
+            return self.service.files().create(
                 body=metadata,
                 media_body=media_body,
                 fields='id',
@@ -131,12 +130,11 @@ class Drive(Service):
         except HttpError as e:
             logger.exception('UPLOAD_ERROR')
             raise UploadError from e
-        return resp.get('id')
 
     def upload_new_revision(self, file_id, src, keep_revision=False):
         media_body = MediaFileUpload(filename=src)
         try:
-            resp = self.service.files().update(
+            return self.service.files().update(
                 fileId=file_id,
                 media_body=media_body,
                 keepRevisionForever=keep_revision,
@@ -144,7 +142,6 @@ class Drive(Service):
         except HttpError as e:
             logger.exception('UPLOAD_ERROR')
             raise UploadError from e
-        return file_id
 
     def import_csv_as_gsheet(self, src, name=None, parents=()):
         """Uploads a CSV file to Google drive as Google Sheet.
@@ -257,3 +254,61 @@ class Drive(Service):
 
         mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         self.export_as(file_id, dest=dest, mime_type=mime_type)
+
+    def limit_file_sharing(self, file_id):
+        """Limit file from share, copy, or download.
+
+        :type file_id: string
+        :param file_id: Google Sheet file ID.
+        """
+
+        body = {
+            'copyRequiresWriterPermission': True,
+            'writersCanShare': False,
+            'properties': {
+                'preventSharing': 'true'
+            }
+        }
+        return self.service.files().update(
+            fileId=file_id,
+            body=body,
+        ).execute()
+
+    def search(self, query=None, page_size=100, exclude_folder=False):
+        """Search for files or folders. A wrapper of files.list().
+
+        :type query: string
+        :param query: q parameter of files.list()
+
+        :type page_size: string
+        :param page_size: pageSize parameter of files.list()
+
+        :type
+
+        References:
+        - https://developers.google.com/drive/api/v3/reference/files/list
+        - https://developers.google.com/drive/api/v3/search-files
+        - https://developers.google.com/drive/api/v3/ref-search-terms
+
+        """
+        if exclude_folder:
+            query_chunk = "(mimeType != 'application/vnd.google-apps.folder')"
+            if query is None or query == '':
+                query = query_chunk
+            else:
+                query = query + ' and ' + query_chunk
+
+        page_token = None
+        while True:
+            resp = self.service.files().list(
+                q=query,
+                pageToken=page_token,
+                pageSize=page_size,
+            ).execute()
+
+            for file in resp.get('files', []):
+                yield file
+
+            page_token = resp.get('nextPageToken', None)
+            if page_token is None:
+                break

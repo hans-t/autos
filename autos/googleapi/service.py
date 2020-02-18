@@ -54,7 +54,7 @@ class Service:
                 pickle.dump(credentials, token)
         return credentials
 
-    def init_service(self, credentials_file, client_secrets_file):
+    def init_service(self, credentials_file, client_secrets_file, api_key):
         """Initializes Google API authenticated service.
 
         :type credentials_file: string
@@ -62,8 +62,11 @@ class Service:
 
         :type client_secrets_file: string
         :param client_secrets_file: Path to client secrets file.
+
+        :type api_key: string
+        :param api_key: https://github.com/googleapis/google-api-python-client/blob/master/docs/api-keys.md
         """
 
         credentials = self._get_credentials(credentials_file, client_secrets_file)
-        self._service = build(self.api_name, self.api_version, credentials=credentials)
+        self._service = build(self.api_name, self.api_version, credentials=credentials, developerKey=api_key)
         return self
